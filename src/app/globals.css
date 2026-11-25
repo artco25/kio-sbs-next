@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f9f9fc;
+  --foreground: #1a1c1e;
+  --card: #ffffff;
+  --card-foreground: #1a1c1e;
+  --primary: #2fd9f4;
+  --primary-foreground: #003640;
+  --muted: #f1f2f6;
+  --muted-foreground: #6b7482;
+  --border: #e3e6eb;
+  --ring: #2fd9f4;
+}
+
+.dark {
+  --background: #0b0f14;
+  --foreground: #e6eaf0;
+  --card: #151b24;
+  --card-foreground: #e6eaf0;
+  --primary: #2fd9f4;
+  --primary-foreground: #003640;
+  --muted: #232a35;
+  --muted-foreground: #9aa2ae;
+  --border: rgba(255, 255, 255, 0.1);
+  --ring: #2fd9f4;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+@layer components {
+  .surface {
+    @apply bg-card border border-border shadow-card rounded-card;
+  }
+  .pill-brand {
+    @apply inline-flex items-center gap-2 rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:brightness-95;
+  }
+}
