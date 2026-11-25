@@ -1,0 +1,11 @@
+// Worker de sólo archivos estáticos para el admin web de KIO SBS (SPA).
+// Deploy: npm run deploy   (compila con VITE_API_URL de .env.production)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kio-sbs-admin",
+  "compatibility_date": "2026-04-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}

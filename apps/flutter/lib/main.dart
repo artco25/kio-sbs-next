@@ -1,0 +1,80 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
+
+import 'data/local_db.dart';
+import 'pages/login_page.dart';
+import 'services/session.dart';
+import 'services/sync_service.dart';
+import 'theme/kio_theme.dart';
+import 'ui/shell.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('es');
+  // Al primer arranque (instalación) se crea la SQLite local con todas las tablas.
+  final db = await LocalDb.open();
+  final session = Session(db);
+  await session.load();
+  final sync = SyncService(db, session);
+
+  runApp(MultiProvider(
+    providers: [
+      ChangeNotifierProvider.value(value: db),
+      ChangeNotifierProvider.value(value: session),
+      ChangeNotifierProvider.value(value: sync),
+    ],
+    child: const KioSbsApp(),
+  ));
+}
+
+class KioSbsApp extends StatelessWidget {
+  const KioSbsApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'KIO SBS',
+      debugShowCheckedModeBanner: false,
+      theme: Kio.theme(),
+      locale: const Locale('es', 'CO'),
+      supportedLocales: const [Locale('es', 'CO'), Locale('es')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      home: const _Root(),
+    );
+  }
+}
+
+/// Muestra el login o el shell y arranca/detiene el ciclo de sincronización de 90 s.
+class _Root extends StatefulWidget {
+  const _Root();
+
+  @override
+  State<_Root> createState() => _RootState();
+}
+
+class _RootState extends State<_Root> {
+  bool _started = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final session = context.watch<Session>();
+    final sync = context.read<SyncService>();
+    if (session.loggedIn && !_started) {
+      _started = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        sync.start();
+        session.refreshMe();
+      });
+    } else if (!session.loggedIn && _started) {
+      _started = false;
+      sync.stop();
+    }
+    return session.loggedIn ? const KioShell() : const LoginPage();
+  }
+}
