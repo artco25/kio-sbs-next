@@ -2,7 +2,7 @@
 // Deploy: npm run deploy   (compila con VITE_API_URL de .env.production)
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kio-sbs-admin",
+  "name": "kio-sbs",
   "compatibility_date": "2026-04-01",
   "assets": {
     "directory": "./dist",
