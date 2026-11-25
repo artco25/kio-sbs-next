@@ -28,7 +28,7 @@ export default function PosPage() {
     setSession(s.session);
   }
 
-  useEffect(() => { load().catch((e) => setError(e.message)); }, []);
+  useEffect(() => { load().catch((e) => setError((e instanceof Error ? e.message : "Error"))); }, []);
 
   const subtotal = useMemo(() => cart.reduce((a, i) => a + i.price * i.qty, 0), [cart]);
   const tax = useMemo(() => cart.reduce((a, i) => a + i.price * i.qty * (i.tax_rate ?? 0.19), 0), [cart]);
@@ -51,7 +51,7 @@ export default function PosPage() {
     try {
       const data = await api<{ session: Session }>("/api/pos/sessions/open", { method: "POST", body: JSON.stringify({ terminal, opening_cash: 0 }) });
       setSession(data.session); setMsg("Sesión abierta");
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError((e instanceof Error ? e.message : "Error")); }
   }
   async function closeSession() {
     if (!session) return;
@@ -59,7 +59,7 @@ export default function PosPage() {
     try {
       await api(`/api/pos/sessions/${session.id}/close`, { method: "POST", body: JSON.stringify({ closing_cash: 0, notes: "Cierre desde POS web" }) });
       setSession(null); setMsg("Sesión cerrada");
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError((e instanceof Error ? e.message : "Error")); }
   }
   async function checkout() {
     if (!session) return setError("Abre una sesión POS antes de vender.");
@@ -76,7 +76,7 @@ export default function PosPage() {
         }),
       });
       setCart([]); setMsg(`Venta registrada (${paymentMethod}) por ${fmt(total)}`);
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError((e instanceof Error ? e.message : "Error")); }
     finally { setLoading(false); }
   }
 

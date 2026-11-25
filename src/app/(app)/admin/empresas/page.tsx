@@ -18,7 +18,7 @@ export default function EmpresasPage() {
     setCompanies(data.companies);
   }
 
-  useEffect(() => { load().catch((e) => setError(e.message)); }, []);
+  useEffect(() => { load().catch((e) => setError((e instanceof Error ? e.message : "Error"))); }, []);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -27,7 +27,7 @@ export default function EmpresasPage() {
       await api("/api/admin/companies", { method: "POST", body: JSON.stringify({ name, slug, is_main: isMain }) });
       setName(""); setSlug(""); setIsMain(false);
       await load();
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError((err instanceof Error ? err.message : "Error")); }
     finally { setLoading(false); }
   }
 

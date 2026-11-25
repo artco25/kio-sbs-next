@@ -27,8 +27,8 @@ export default function LoginPage() {
       const { user, company } = login.me;
       setSession(login.token, { ...user, company_id: company.id, company_name: company.name });
       router.replace("/");
-    } catch (err: any) {
-      setError(err.message || "No se pudo iniciar sesión");
+    } catch (err) {
+      setError((err instanceof Error ? err.message : "Error") || "No se pudo iniciar sesión");
     } finally {
       setLoading(false);
     }

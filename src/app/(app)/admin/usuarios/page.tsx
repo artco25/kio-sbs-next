@@ -23,7 +23,7 @@ export default function UsuariosPage() {
     if (!form.company_id && c.companies[0]) setForm((f) => ({ ...f, company_id: String(c.companies[0].id) }));
   }
 
-  useEffect(() => { load().catch((e) => setError(e.message)); }, []); // eslint-disable-line
+  useEffect(() => { load().catch((e) => setError((e instanceof Error ? e.message : "Error"))); }, []); // eslint-disable-line
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -32,7 +32,7 @@ export default function UsuariosPage() {
       await api("/api/admin/users", { method: "POST", body: JSON.stringify({ ...form, company_id: Number(form.company_id) }) });
       setForm((f) => ({ ...f, name: "", email: "", password: "", role: "user" }));
       await load();
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError((err instanceof Error ? err.message : "Error")); }
     finally { setLoading(false); }
   }
 
