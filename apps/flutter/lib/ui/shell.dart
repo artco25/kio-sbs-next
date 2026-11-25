@@ -343,6 +343,7 @@ class SyncPill extends StatelessWidget {
       SyncState.syncing => (LucideIcons.refreshCw, Kio.info, 'Sincronizando…'),
       SyncState.offline => (LucideIcons.cloudOff, Kio.warning, 'Sin conexión'),
       SyncState.error => (LucideIcons.circleAlert, Kio.danger, 'Error de sync'),
+      SyncState.paused => (LucideIcons.pauseCircle, Kio.muted, 'En pausa (sin actividad)'),
       SyncState.idle => sync.pending > 0 ? (LucideIcons.cloud, Kio.info, 'En línea') : (LucideIcons.cloudCheck, Kio.green, 'Sincronizado'),
     };
     final narrow = MediaQuery.sizeOf(context).width < 600;

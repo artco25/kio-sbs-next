@@ -239,29 +239,29 @@ class _PosPageState extends State<PosPage> {
   }
 
   Widget _catalog(List<DbRow> cats, List<DbRow> products, DbRow session) {
-    return ListView(padding: const EdgeInsets.fromLTRB(24, 20, 16, 90), children: [
+    return ListView(padding: const EdgeInsets.fromLTRB(20, 16, 16, 90), children: [
       Wrap(spacing: 12, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        Text('Caja ${session['terminal']}', style: Kio.title(26)),
+        Text('Caja ${session['terminal']}', style: Kio.title(24)),
         StatusPill('Abierta · ${session['number']}', color: Kio.green),
-        OutlinedButton.icon(onPressed: () => _closeSession(session), icon: const Icon(LucideIcons.lock, size: 15), label: const Text('Cerrar caja')),
+        FilledButton.tonalIcon(onPressed: () => _closeSession(session), icon: const Icon(LucideIcons.lock, size: 16), label: const Text('Cerrar caja')),
       ]),
-      const SizedBox(height: 16),
+      const SizedBox(height: 14),
       Wrap(spacing: 10, runSpacing: 10, children: [
         SizedBox(
-          width: 260,
+          width: 280,
           child: TextField(
             controller: _scan,
             focusNode: _scanFocus,
             autofocus: true,
             onSubmitted: _onScan,
-            decoration: const InputDecoration(hintText: 'Escanear código de barras…', prefixIcon: Icon(LucideIcons.scanBarcode, size: 16)),
+            decoration: const InputDecoration(hintText: 'Escanear código de barras…', prefixIcon: Icon(LucideIcons.scanBarcode, size: 18)),
           ),
         ),
-        SearchField(hint: 'Buscar producto…', width: 240, onChanged: (v) => setState(() => _q = v.trim())),
+        SearchField(hint: 'Buscar producto…', width: 260, onChanged: (v) => setState(() => _q = v.trim())),
       ]),
-      const SizedBox(height: 14),
+      const SizedBox(height: 12),
       SizedBox(
-        height: 38,
+        height: 44,
         child: ListView(scrollDirection: Axis.horizontal, children: [
           _catChip(null, 'Todos', Kio.navy),
           for (final c in cats) _catChip(c['id'] as String, asStr(c['name']), Kio.navy),
@@ -269,29 +269,67 @@ class _PosPageState extends State<PosPage> {
       ),
       const SizedBox(height: 14),
       LayoutBuilder(builder: (context, c) {
-        final cols = (c.maxWidth / 170).floor().clamp(2, 8);
+        // Tiles grandes para táctil: mínimo ~160px, crecen según ancho.
+        final cols = (c.maxWidth / 175).floor().clamp(2, 7);
         final w = (c.maxWidth - (cols - 1) * 12) / cols;
         return Wrap(spacing: 12, runSpacing: 12, children: [
-          for (final p in products)
-            SizedBox(
-              width: w,
-              child: KioCard(
-                padding: const EdgeInsets.all(14),
-                onTap: () => _add(p),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  IconTile(LucideIcons.package, color: Suite.pos.color, size: 34),
-                  const SizedBox(height: 10),
-                  Text(asStr(p['name']), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, height: 1.2)),
-                  const SizedBox(height: 6),
-                  Text(money(asNum(p['price']) * (1 + asNum(p['tax_rate']))), style: const TextStyle(color: Kio.navy, fontWeight: FontWeight.w800, fontSize: 15)),
-                  if (asBool(p['track_stock']))
-                    Text('Stock ${qty(p['stock'])}', style: TextStyle(fontSize: 11.5, color: asNum(p['stock']) <= 0 ? Kio.danger : Kio.muted)),
-                ]),
-              ),
-            ),
+          for (final p in products) SizedBox(width: w, child: _productTile(p)),
         ]);
       }),
     ]);
+  }
+
+  Widget _productTile(DbRow p) {
+    final name = asStr(p['name']);
+    final price = asNum(p['price']) * (1 + asNum(p['tax_rate']));
+    final stock = asNum(p['stock']);
+    final track = asBool(p['track_stock']);
+    final out = track && stock <= 0;
+    final color = Suite.pos.color;
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: out ? null : () => _add(p),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: out ? Kio.border : Kio.borderStrong),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // Área "imagen" táctil: icono grande con fondo de color (placeholder; listo para imagen real).
+            Container(
+              height: 88,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Kio.tint(out ? Kio.muted : color, .10),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(
+                  name.isNotEmpty ? name.characters.first.toUpperCase() : '•',
+                  style: TextStyle(fontFamily: Kio.heading, fontSize: 34, fontWeight: FontWeight.w800, color: out ? Kio.subtle : color),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 40,
+              child: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, height: 1.2, color: out ? Kio.subtle : Kio.textStrong)),
+            ),
+            const SizedBox(height: 4),
+            Text(money(price), style: TextStyle(color: out ? Kio.subtle : Kio.navy, fontWeight: FontWeight.w800, fontSize: 17)),
+            if (track)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(out ? 'Agotado' : 'Stock ${qty(stock)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: out ? Kio.danger : Kio.muted)),
+              ),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _catChip(String? id, String label, Color color) {
@@ -349,18 +387,19 @@ class _PosPageState extends State<PosPage> {
                   itemBuilder: (_, i) {
                     final l = _cart[i];
                     return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       child: Row(children: [
                         Expanded(
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(l.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            Text(l.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                            const SizedBox(height: 2),
                             Text('${money(l.price * (1 + l.taxRate))} c/u', style: Kio.small),
                           ]),
                         ),
                         _qtyBtn(LucideIcons.minus, () => setState(() => l.qty <= 1 ? _cart.removeAt(i) : l.qty -= 1)),
-                        SizedBox(width: 34, child: Text(qty(l.qty), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700))),
+                        SizedBox(width: 42, child: Text(qty(l.qty), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
                         _qtyBtn(LucideIcons.plus, () => setState(() => l.qty += 1)),
-                        SizedBox(width: 96, child: Text(money(l.total), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w700))),
+                        SizedBox(width: 92, child: Text(money(l.total), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))),
                       ]),
                     );
                   },
@@ -398,14 +437,18 @@ class _PosPageState extends State<PosPage> {
     );
   }
 
-  Widget _qtyBtn(IconData icon, VoidCallback onTap) => InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(border: Border.all(color: Kio.borderStrong), borderRadius: BorderRadius.circular(8)),
-          child: Icon(icon, size: 14),
+  Widget _qtyBtn(IconData icon, VoidCallback onTap) => Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(border: Border.all(color: Kio.borderStrong), borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, size: 18, color: Kio.textStrong),
+          ),
         ),
       );
 }
@@ -436,56 +479,129 @@ class _PayDialog extends StatefulWidget {
 
 class _PayDialogState extends State<_PayDialog> {
   String _method = 'efectivo';
-  late final _received = TextEditingController(text: widget.total.round().toString());
+  late String _raw = widget.total.round().toString();
 
-  double get _rec => double.tryParse(_received.text.replaceAll('.', '').replaceAll(',', '.')) ?? 0;
+  double get _rec => double.tryParse(_raw) ?? 0;
+
+  void _key(String k) {
+    setState(() {
+      if (k == 'C') {
+        _raw = '0';
+      } else if (k == '⌫') {
+        _raw = _raw.length <= 1 ? '0' : _raw.substring(0, _raw.length - 1);
+      } else if (k == '00') {
+        _raw = (_raw == '0') ? '0' : '${_raw}00';
+      } else {
+        _raw = (_raw == '0') ? k : '$_raw$k';
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final change = _rec - widget.total;
-    final quick = <double>{widget.total, ...[10000, 20000, 50000, 100000].map((x) => x.toDouble()).where((x) => x > widget.total)};
-    return AlertDialog(
-      title: Text('Cobrar ${money(widget.total)}', style: Kio.h2(19)),
-      content: SizedBox(
-        width: 440,
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final e in {...kPayMethods, if (widget.hasPartner) 'credito': 'Crédito (cartera)'}.entries)
-              ChoiceChip(
-                label: Text(e.value),
-                selected: _method == e.key,
-                showCheckmark: false,
-                selectedColor: Kio.navy,
-                labelStyle: TextStyle(color: _method == e.key ? Colors.white : Kio.textStrong, fontWeight: FontWeight.w600),
-                onSelected: (_) => setState(() => _method = e.key),
-              ),
-          ]),
-          if (_method == 'efectivo') ...[
-            const SizedBox(height: 16),
-            TextField(
-              controller: _received,
-              autofocus: true,
-              onChanged: (_) => setState(() {}),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'Recibido', prefixText: r'$ '),
-            ),
-            const SizedBox(height: 10),
-            Wrap(spacing: 8, children: [
-              for (final q in quick) ActionChip(label: Text(money(q)), onPressed: () => setState(() => _received.text = q.round().toString())),
-            ]),
-            const SizedBox(height: 14),
-            _kv('Cambio', money(change < 0 ? 0 : change), bold: true, size: 20),
-          ],
-          if (_method == 'credito') const Padding(padding: EdgeInsets.only(top: 14), child: Text('Se valida cupo, mora y bloqueo del cliente antes de registrar.', style: Kio.label)),
+    final quick = <int>{
+      widget.total.round(),
+      ...[2000, 5000, 10000, 20000, 50000, 100000].where((x) => x > widget.total.round()),
+    }.toList()..sort();
+    final wide = MediaQuery.sizeOf(context).width >= 700;
+
+    final left = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        for (final e in {...kPayMethods, if (widget.hasPartner) 'credito': 'Crédito'}.entries)
+          ChoiceChip(
+            label: Text(e.value),
+            selected: _method == e.key,
+            showCheckmark: false,
+            selectedColor: Kio.navy,
+            labelStyle: TextStyle(color: _method == e.key ? Colors.white : Kio.textStrong, fontWeight: FontWeight.w700),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            onSelected: (_) => setState(() => _method = e.key),
+          ),
+      ]),
+      const SizedBox(height: 16),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: Kio.bg, borderRadius: BorderRadius.circular(14), border: Border.all(color: Kio.border)),
+        child: Column(children: [
+          _kv('Total a cobrar', money(widget.total), bold: true, size: 18),
+          const Divider(height: 18),
+          _kv('Recibido', money(_rec), bold: true, size: 22),
+          const SizedBox(height: 6),
+          _kv('Cambio', money(change < 0 ? 0 : change), bold: true, size: 24),
         ]),
+      ),
+      if (_method == 'efectivo') ...[
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final q in quick.take(6))
+            ActionChip(
+              label: Text(money(q), style: const TextStyle(fontWeight: FontWeight.w700)),
+              onPressed: () => setState(() => _raw = q.toString()),
+            ),
+        ]),
+      ],
+      if (_method == 'credito')
+        const Padding(padding: EdgeInsets.only(top: 14), child: Text('Se valida cupo, mora y bloqueo del cliente antes de registrar.', style: Kio.label)),
+    ]);
+
+    final numpad = _method == 'efectivo'
+        ? SizedBox(
+            width: 280,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              for (final row in const [
+                ['1', '2', '3'],
+                ['4', '5', '6'],
+                ['7', '8', '9'],
+                ['C', '0', '⌫'],
+                ['00'],
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(children: [
+                    for (final k in row)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: SizedBox(
+                            height: 58,
+                            child: FilledButton.tonal(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: k == 'C' ? Kio.tint(Kio.danger, .12) : k == '⌫' ? Kio.tint(Kio.warning, .12) : Kio.brandLight,
+                                foregroundColor: k == 'C' ? Kio.danger : Kio.textStrong,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, fontFamily: 'Inter'),
+                              ),
+                              onPressed: () => _key(k),
+                              child: Text(k),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ]),
+                ),
+            ]),
+          )
+        : const SizedBox.shrink();
+
+    return AlertDialog(
+      title: Text('Cobrar ${money(widget.total)}', style: Kio.h2(20)),
+      content: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: wide ? 760 : 460),
+        child: wide && _method == 'efectivo'
+            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: left),
+                const SizedBox(width: 20),
+                numpad,
+              ])
+            : SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [left, if (_method == 'efectivo') ...[const SizedBox(height: 16), numpad]])),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: Kio.green),
+          style: FilledButton.styleFrom(backgroundColor: Kio.green, minimumSize: const Size(160, 48)),
           onPressed: _method == 'efectivo' && change < 0 ? null : () => Navigator.pop(context, _PayResult(_method == 'credito' ? 'credito' : _method, change < 0 ? 0 : change, _method == 'credito')),
-          child: const Text('Confirmar pago'),
+          child: const Text('Confirmar pago', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         ),
       ],
     );

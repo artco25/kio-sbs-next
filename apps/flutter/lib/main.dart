@@ -58,8 +58,26 @@ class _Root extends StatefulWidget {
   State<_Root> createState() => _RootState();
 }
 
-class _RootState extends State<_Root> {
+class _RootState extends State<_Root> with WidgetsBindingObserver {
   bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    context.read<SyncService>().onLifecycle(state);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +93,14 @@ class _RootState extends State<_Root> {
       _started = false;
       sync.stop();
     }
-    return session.loggedIn ? const KioShell() : const LoginPage();
+    final child = session.loggedIn ? const KioShell() : const LoginPage();
+    // Cualquier interacción del usuario cuenta como actividad: retoma el sync si estaba en pausa.
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => sync.noteActivity(),
+      onPointerSignal: (_) => sync.noteActivity(),
+      onPointerHover: (_) => sync.noteActivity(),
+      child: child,
+    );
   }
 }

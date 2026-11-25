@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../data/local_db.dart';
@@ -9,8 +9,10 @@ import '../data/tables.g.dart';
 import 'graphql.dart';
 import 'session.dart';
 
-/// Intervalo de sincronización pedido: cada 1,5 minutos.
+/// Intervalo de sincronización con actividad: cada 1,5 minutos.
 const kSyncInterval = Duration(seconds: 90);
+/// Sin actividad del usuario por este tiempo: se pausa el sync para no gastar peticiones Cloudflare.
+const kIdleTimeout = Duration(minutes: 5);
 
 const _pullQuery = r'''
 query($since:Int!,$limit:Int,$device:DeviceInput){
@@ -20,7 +22,7 @@ query($since:Int!,$limit:Int,$device:DeviceInput){
 const _pushMutation = r'''
 mutation($changes:[ChangeInput!]!){ push(changes:$changes){ accepted rejected{ table id reason } head serverTime } }''';
 
-enum SyncState { idle, syncing, offline, error }
+enum SyncState { idle, syncing, offline, error, paused }
 
 /// Sincronización offline-first:
 ///  1. PUSH: filas locales con dirty=1 en lotes de ≤40 (límite del servidor).
@@ -32,6 +34,7 @@ class SyncService extends ChangeNotifier {
   final Session session;
 
   Timer? _timer;
+  Timer? _idleTimer;
   SyncState state = SyncState.idle;
   String? lastError;
   DateTime? lastSync;
@@ -42,9 +45,12 @@ class SyncService extends ChangeNotifier {
   int lastPulled = 0;
   Duration? clockSkew;
   bool _running = false;
+  bool _started = false;
+  bool _pausedByLifecycle = false;
   int maxPush = 40;
 
   bool get online => state != SyncState.offline;
+  bool get hibernating => state == SyncState.paused;
 
   Future<void> start() async {
     cursor = int.tryParse(await db.getMeta('sync:cursor') ?? '') ?? 0;
@@ -52,20 +58,72 @@ class SyncService extends ChangeNotifier {
     lastSync = last == null ? null : DateTime.tryParse(last);
     pending = await db.pendingCount();
     db.addListener(_onLocalChange);
-    _timer?.cancel();
-    _timer = Timer.periodic(kSyncInterval, (_) => syncNow());
+    _started = true;
+    _pausedByLifecycle = false;
+    _armIdle();
+    _startTimer();
     unawaited(syncNow());
   }
 
   void stop() {
+    _started = false;
     _timer?.cancel();
     _timer = null;
+    _idleTimer?.cancel();
+    _idleTimer = null;
     db.removeListener(_onLocalChange);
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    if (!_started || hibernating || _pausedByLifecycle) return;
+    _timer = Timer.periodic(kSyncInterval, (_) => syncNow());
+  }
+
+  void _armIdle() {
+    _idleTimer?.cancel();
+    if (!_started) return;
+    _idleTimer = Timer(kIdleTimeout, _hibernate);
+  }
+
+  /// Marca actividad del usuario: si estaba hibernando, retoma el sync.
+  void noteActivity() {
+    if (!_started) return;
+    _armIdle();
+    if (state == SyncState.paused && !_pausedByLifecycle) {
+      state = SyncState.idle;
+      _startTimer();
+      unawaited(syncNow());
+      notifyListeners();
+    }
+  }
+
+  /// App en segundo plano / inactiva: pausa para no gastar peticiones.
+  void onLifecycle(AppLifecycleState life) {
+    if (!_started) return;
+    if (life == AppLifecycleState.paused || life == AppLifecycleState.inactive || life == AppLifecycleState.hidden) {
+      _pausedByLifecycle = true;
+      _hibernate();
+    } else if (life == AppLifecycleState.resumed) {
+      _pausedByLifecycle = false;
+      noteActivity();
+    }
+  }
+
+  void _hibernate() {
+    _timer?.cancel();
+    _timer = null;
+    if (!_started || state == SyncState.syncing) return;
+    if (state == SyncState.paused) return;
+    state = SyncState.paused;
+    notifyListeners();
   }
 
   Timer? _debounce;
   void _onLocalChange() {
     // Actualiza el contador de pendientes en la barra superior sin esperar al ciclo de 90 s.
+    // Un cambio local cuenta como actividad (ej. venta en POS).
+    noteActivity();
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 400), () async {
       pending = await db.pendingCount();
