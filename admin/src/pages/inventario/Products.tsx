@@ -6,6 +6,7 @@ import { KpiCard } from '../../components/charts'
 import { RecordForm, type FieldDef } from '../../components/RecordForm'
 import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, FilterSelect, IconButton, IconTile, Modal, NameCell, PageHeader, SearchInput, StatusBadge, Toolbar, type Column } from '../../components/ui'
 import { useAuth } from '../../lib/auth'
+import { getCurrentSuite } from '../../lib/suites'
 import { date, money, pct, qty } from '../../lib/format'
 import { exportCsv, saveRecord, saveRecords, today, uuid, type Row } from '../../lib/records'
 import { useGql } from '../../lib/useGql'
@@ -86,6 +87,7 @@ function MarginText({ p }: { p: Prod }) {
 export default function Products() {
   const { can } = useAuth()
   const canWrite = can('products', 'write')
+  const canCreate = canWrite && getCurrentSuite() !== 'pos'
   const canStock = can('stock_moves', 'write')
   const [params, setParams] = useSearchParams()
   const { data, loading, error } = useGql<Data>(Q)
@@ -302,7 +304,7 @@ export default function Products() {
             <Button variant="secondary" icon={FileSpreadsheet} onClick={downloadTemplate}>
               Plantilla Excel
             </Button>
-            {canWrite && (
+            {canCreate && (
               <Button variant="secondary" icon={Upload} onClick={() => fileRef.current?.click()} disabled={importing}>
                 {importing ? 'Importando…' : 'Importar Excel'}
               </Button>
@@ -310,7 +312,7 @@ export default function Products() {
             <Button variant="secondary" icon={Download} onClick={exportRows} disabled={rows.length === 0}>
               Exportar CSV
             </Button>
-            {canWrite && (
+            {canCreate && (
               <Button icon={Plus} onClick={() => setForm({ open: true, initial: null })}>
                 Nuevo producto
               </Button>
@@ -350,7 +352,7 @@ export default function Products() {
               hasFilters ? (
                 <EmptyState icon={Package} title="Sin resultados" message="Ningún producto coincide con la búsqueda o los filtros." action={<Button variant="secondary" onClick={() => { setQ(''); setCat(''); setStatus('todos') }}>Quitar filtros</Button>} />
               ) : (
-                <EmptyState icon={Package} title="Aún no tienes productos" message="Crea tu primer producto para venderlo en el POS y controlar su inventario." action={canWrite ? <Button icon={Plus} onClick={() => setForm({ open: true, initial: null })}>Nuevo producto</Button> : undefined} />
+                <EmptyState icon={Package} title="Aún no tienes productos" message="Crea tu primer producto para venderlo en el POS y controlar su inventario." action={canCreate ? <Button icon={Plus} onClick={() => setForm({ open: true, initial: null })}>Nuevo producto</Button> : undefined} />
               )
             }
           />

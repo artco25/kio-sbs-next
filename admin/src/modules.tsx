@@ -83,10 +83,10 @@ export const MODULES: Module[] = [
   // Sistema
   { path: '/sistema/plataforma', label: 'Plataforma', icon: Crown, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Platform')), visible: (a) => a.isPlatform },
   { path: '/sistema/sedes', label: 'Sedes', icon: MapPin, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Sites')), visible: (a) => a.isAdmin },
-  { path: '/sistema/bodegas', label: 'Bodegas', icon: Warehouse, suites: ['sistema', 'inventario'], page: lazy(() => import('./pages/sistema/Warehouses')), visible: (a) => a.isAdmin },
+  { path: '/inventario/bodegas', label: 'Bodegas', icon: Warehouse, suites: ['inventario'], page: lazy(() => import('./pages/sistema/Warehouses')), visible: (a) => a.can('warehouses') },
+  { path: '/inventario/cajas', label: 'Cajas y dispositivos', icon: MonitorSmartphone, suites: ['inventario'], page: lazy(() => import('./pages/sistema/Devices')), visible: (a) => a.can('devices') },
   { path: '/sistema/usuarios', label: 'Usuarios', icon: Users, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Users')), visible: (a) => a.isAdmin },
   { path: '/sistema/roles', label: 'Roles y permisos', icon: ShieldCheck, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Roles')), visible: (a) => a.isAdmin },
-  { path: '/sistema/dispositivos', label: 'Cajas y dispositivos', icon: MonitorSmartphone, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Devices')), visible: (a) => a.isAdmin },
   { path: '/sistema/descargas', label: 'Descargar POS', icon: Download, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Downloads')), visible: (a) => a.isAdmin },
   { path: '/sistema/empresa', label: 'Empresa', icon: Building2, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Company')), visible: (a) => a.isAdmin },
 ]
