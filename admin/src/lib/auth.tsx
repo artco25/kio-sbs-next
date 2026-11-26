@@ -4,7 +4,7 @@ import { getToken, gql, setToken } from './gql'
 export type Role = 'admin' | 'contador' | 'cajero' | 'vendedor'
 
 export interface Me {
-  user: { id: string; name: string; email: string | null; role: Role; posTerminal: string | null; platformRole: string | null }
+  user: { id: string; name: string; email: string | null; role: Role; posTerminal: string | null; platformRole: string | null; siteId: string | null }
   company: { id: string; name: string; nit: string | null; address: string | null; city: string | null; phone: string | null; email: string | null; receiptFooter: string | null; currency: string; plan: string }
   permissions: Record<string, { read: boolean; write: boolean }>
   /** Suites a las que puede ingresar (comercial, pos, financiero, personal, sistema). */
@@ -13,7 +13,7 @@ export interface Me {
   platformRole: string | null
 }
 
-export const ME_FIELDS = `user { id name email role posTerminal platformRole } company { id name nit address city phone email receiptFooter currency plan } permissions suites roleName platformRole`
+export const ME_FIELDS = `user { id name email role posTerminal platformRole siteId } company { id name nit address city phone email receiptFooter currency plan } permissions suites roleName platformRole`
 const ME_KEY = 'kio_sbs_me'
 
 export const ROLE_LABEL: Record<Role, string> = {

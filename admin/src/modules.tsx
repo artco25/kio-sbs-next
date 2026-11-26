@@ -10,6 +10,7 @@ import {
   HandCoins,
   IdCard,
   LayoutDashboard,
+  MapPin,
   MonitorSmartphone,
   Package,
   ReceiptText,
@@ -20,6 +21,7 @@ import {
   UserRound,
   Users,
   Wallet,
+  Warehouse,
   type LucideIcon,
 } from 'lucide-react'
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
@@ -78,6 +80,8 @@ export const MODULES: Module[] = [
 
   // Sistema
   { path: '/sistema/plataforma', label: 'Plataforma', icon: Crown, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Platform')), visible: (a) => a.isPlatform },
+  { path: '/sistema/sedes', label: 'Sedes', icon: MapPin, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Sites')), visible: (a) => a.isAdmin },
+  { path: '/sistema/bodegas', label: 'Bodegas', icon: Warehouse, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Warehouses')), visible: (a) => a.isAdmin },
   { path: '/sistema/usuarios', label: 'Usuarios', icon: Users, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Users')), visible: (a) => a.isAdmin },
   { path: '/sistema/roles', label: 'Roles y permisos', icon: ShieldCheck, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Roles')), visible: (a) => a.isAdmin },
   { path: '/sistema/dispositivos', label: 'Cajas y dispositivos', icon: MonitorSmartphone, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Devices')), visible: (a) => a.isAdmin },

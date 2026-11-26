@@ -1,8 +1,9 @@
-import { CloudOff, Laptop, MonitorSmartphone, Monitor, RefreshCw, Smartphone, Tag, Wifi, type LucideIcon } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { CloudOff, Laptop, MonitorSmartphone, Monitor, Pencil, RefreshCw, Smartphone, Tag, Wifi, type LucideIcon } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '../../components/charts'
-import { Badge, Card, type Column, DataTable, EmptyState, ErrorBox, IconTile, NameCell, PageHeader, type Tone } from '../../components/ui'
+import { Badge, Button, Card, type Column, DataTable, EmptyState, ErrorBox, Field, IconButton, IconTile, Modal, NameCell, PageHeader, Select, type Tone, useFeedback } from '../../components/ui'
 import { qty, relative } from '../../lib/format'
+import { gql } from '../../lib/gql'
 import { useGql } from '../../lib/useGql'
 
 interface DeviceItem {
@@ -13,10 +14,13 @@ interface DeviceItem {
   lastSyncAt: string | null
   lastCursor: number
   pending: number
+  siteId: string | null
   user: { name: string } | null
 }
 
-const Q = `{ devices{ id name platform appVersion lastSyncAt lastCursor pending user{ name } } }`
+interface SiteLite { id: string; name: string }
+
+const Q = `{ devices{ id name platform appVersion lastSyncAt lastCursor pending siteId user{ name } } sites{ id name } }`
 
 const PLATFORM: Record<string, { label: string; icon: LucideIcon; tone: Tone }> = {
   windows: { label: 'Windows', icon: Monitor, tone: 'brand' },
@@ -35,7 +39,11 @@ const ts = (v: string | null) => {
 const MIN = 60_000
 
 export default function Devices() {
-  const { data, loading, error, reload } = useGql<{ devices: DeviceItem[] }>(Q)
+  const { toast } = useFeedback()
+  const { data, loading, error, reload } = useGql<{ devices: DeviceItem[]; sites: SiteLite[] }>(Q)
+  const [editing, setEditing] = useState<DeviceItem | null>(null)
+  const [siteId, setSiteId] = useState('')
+  const [saving, setSaving] = useState(false)
   // El estado en línea depende de la hora: refresca cada 30 s.
   useEffect(() => {
     const t = setInterval(() => void reload(), 30_000)
@@ -43,6 +51,8 @@ export default function Devices() {
   }, [reload])
 
   const devices = useMemo(() => [...(data?.devices ?? [])].sort((a, b) => (ts(b.lastSyncAt) ?? 0) - (ts(a.lastSyncAt) ?? 0)), [data])
+  const sites = data?.sites ?? []
+  const siteName = (id: string | null) => sites.find((s) => s.id === id)?.name ?? '—'
   const now = Date.now()
   const online = (d: DeviceItem) => {
     const t = ts(d.lastSyncAt)
@@ -54,6 +64,17 @@ export default function Devices() {
   }).length
   const withPending = devices.filter((d) => d.pending > 0).length
   const versions = new Set(devices.map((d) => d.appVersion).filter(Boolean)).size
+
+  async function saveSite() {
+    if (!editing) return
+    setSaving(true)
+    try {
+      await gql('mutation($id:ID!,$siteId:ID){ assignDeviceSite(id:$id, siteId:$siteId){ id siteId } }', { id: editing.id, siteId: siteId || null })
+      toast('Sede asignada')
+      setEditing(null)
+      await reload()
+    } catch (e) { toast((e as Error).message, 'error') } finally { setSaving(false) }
+  }
 
   const columns: Column<DeviceItem>[] = [
     {
@@ -73,6 +94,7 @@ export default function Devices() {
       },
     },
     { key: 'user', header: 'Usuario', hideSm: true, render: (d) => (d.user ? <NameCell name={d.user.name} /> : <span className="text-muted">—</span>) },
+    { key: 'site', header: 'Sede', hideSm: true, render: (d) => <span>{siteName(d.siteId)}</span> },
     { key: 'version', header: 'Versión', hideSm: true, render: (d) => (d.appVersion ? <Badge tone="neutral">v{d.appVersion}</Badge> : '—') },
     {
       key: 'sync',
@@ -94,6 +116,7 @@ export default function Devices() {
       align: 'right',
       render: (d) => (d.pending > 0 ? <Badge tone="warning">{qty(d.pending)} por enviar</Badge> : <Badge tone="success">Al día</Badge>),
     },
+    { key: 'act', header: '', align: 'right', render: (d) => <IconButton icon={Pencil} label="Asignar sede" onClick={() => { setEditing(d); setSiteId(d.siteId ?? '') }} /> },
   ]
 
   return (
@@ -134,6 +157,21 @@ export default function Devices() {
           </div>
         </div>
       </Card>
+
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Asignar sede" subtitle={editing?.name || 'Dispositivo'}>
+        <div className="space-y-4">
+          <Field label="Sede">
+            <Select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+              <option value="">Sin sede</option>
+              {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Select>
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setEditing(null)}>Cancelar</Button>
+            <Button loading={saving} onClick={saveSite}>Guardar</Button>
+          </div>
+        </div>
+      </Modal>
     </>
   )
 }

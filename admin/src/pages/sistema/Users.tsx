@@ -19,6 +19,7 @@ interface UserItem {
   employeeId: string | null
   roleId: string | null
   roleName: string | null
+  siteId: string | null
 }
 
 interface CustomRoleLite {
@@ -28,7 +29,9 @@ interface CustomRoleLite {
   suites: string[]
 }
 
-const Q = `{ users{ id name email role active posTerminal lastLoginAt employeeId roleId roleName } roles{ id name baseRole suites } }`
+interface SiteLite { id: string; name: string; isDefault: boolean }
+
+const Q = `{ users{ id name email role active posTerminal lastLoginAt employeeId roleId roleName siteId } roles{ id name baseRole suites } sites{ id name isDefault } }`
 const ROLES = Object.keys(ROLE_LABEL) as Role[]
 const ROLE_TONE: Record<Role, Tone> = { admin: 'brand', contador: 'info', cajero: 'warning', vendedor: 'success' }
 
@@ -57,10 +60,11 @@ const passwordError = (pw: string) => (pw.length < 8 ? 'Mínimo 8 caracteres' : 
 
 export default function Users() {
   const { me } = useAuth()
-  const { data, loading, error } = useGql<{ users: UserItem[]; roles: CustomRoleLite[] }>(Q)
+  const { data, loading, error } = useGql<{ users: UserItem[]; roles: CustomRoleLite[]; sites: SiteLite[] }>(Q)
   const [editing, setEditing] = useState<UserItem | 'new' | null>(null)
   const users = data?.users ?? []
   const roles = data?.roles ?? []
+  const sites = data?.sites ?? []
 
   const weekAgo = Date.now() - 7 * 86_400_000
   const columns: Column<UserItem>[] = [
@@ -98,7 +102,7 @@ export default function Users() {
         </div>
       </Card>
 
-      <UserModal target={editing} onClose={() => setEditing(null)} selfId={me?.user.id} roles={roles} />
+      <UserModal target={editing} onClose={() => setEditing(null)} selfId={me?.user.id} roles={roles} sites={sites} />
     </>
   )
 }
@@ -155,13 +159,13 @@ export function PermissionMatrix() {
 
 // ============================================================================ crear / editar
 
-function UserModal({ target, onClose, selfId, roles }: { target: UserItem | 'new' | null; onClose: () => void; selfId?: string; roles: CustomRoleLite[] }) {
+function UserModal({ target, onClose, selfId, roles, sites }: { target: UserItem | 'new' | null; onClose: () => void; selfId?: string; roles: CustomRoleLite[]; sites: SiteLite[] }) {
   if (!target) return null
   // El formulario se monta sólo mientras está abierto: el estado inicial sale del usuario elegido.
-  return <UserForm key={target === 'new' ? 'new' : target.id} target={target} onClose={onClose} isSelf={target !== 'new' && target.id === selfId} roles={roles} />
+  return <UserForm key={target === 'new' ? 'new' : target.id} target={target} onClose={onClose} isSelf={target !== 'new' && target.id === selfId} roles={roles} sites={sites} />
 }
 
-function UserForm({ target, onClose, isSelf, roles }: { target: UserItem | 'new'; onClose: () => void; isSelf: boolean; roles: CustomRoleLite[] }) {
+function UserForm({ target, onClose, isSelf, roles, sites }: { target: UserItem | 'new'; onClose: () => void; isSelf: boolean; roles: CustomRoleLite[]; sites: SiteLite[] }) {
   const { toast } = useFeedback()
   const u = target === 'new' ? null : target
   const [name, setName] = useState(u?.name ?? '')
@@ -169,6 +173,7 @@ function UserForm({ target, onClose, isSelf, roles }: { target: UserItem | 'new'
   // Un solo selector: 'base:<rol>' (rol base) o 'role:<id>' (rol personalizado de la empresa)
   const [roleKey, setRoleKey] = useState<string>(u?.roleId ? `role:${u.roleId}` : `base:${u?.role ?? 'vendedor'}`)
   const [terminal, setTerminal] = useState(u?.posTerminal ?? '')
+  const [siteId, setSiteId] = useState(u?.siteId ?? '')
   const [active, setActive] = useState(u?.active ?? true)
   const [password, setPassword] = useState('')
   const [saving, setSaving] = useState(false)
@@ -190,11 +195,11 @@ function UserForm({ target, onClose, isSelf, roles }: { target: UserItem | 'new'
     try {
       if (!u) {
         await gql('mutation($i:UserInput!){ createUser(input:$i){ id } }', {
-          i: { name: name.trim(), email: email.trim().toLowerCase(), password, role: roleKey.startsWith('base:') ? roleKey.slice(5) : custom?.baseRole ?? 'vendedor', roleId: custom?.id ?? null, posTerminal: terminal.trim() || null },
+          i: { name: name.trim(), email: email.trim().toLowerCase(), password, role: roleKey.startsWith('base:') ? roleKey.slice(5) : custom?.baseRole ?? 'vendedor', roleId: custom?.id ?? null, posTerminal: terminal.trim() || null, siteId: siteId || null },
         })
         toast('Usuario creado')
       } else {
-        const input: Record<string, unknown> = { name: name.trim(), active, posTerminal: terminal.trim() || null }
+        const input: Record<string, unknown> = { name: name.trim(), active, posTerminal: terminal.trim() || null, siteId: siteId || null }
         if (!isSelf) {
           if (custom) input.roleId = custom.id
           else {
@@ -262,6 +267,12 @@ function UserForm({ target, onClose, isSelf, roles }: { target: UserItem | 'new'
         </Field>
         <Field label="Terminal de caja" hint="Prefijo de la caja POS (opcional).">
           <Input value={terminal} onChange={(e) => setTerminal(e.target.value)} placeholder="Ej. C1" />
+        </Field>
+        <Field label="Sede" hint="Sede asignada por defecto al usuario.">
+          <Select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+            <option value="">Sin sede asignada</option>
+            {sites.map((s) => <option key={s.id} value={s.id}>{s.name}{s.isDefault ? ' (principal)' : ''}</option>)}
+          </Select>
         </Field>
         <Field label={u ? 'Nueva contraseña' : 'Contraseña'} required={!u} error={errors.password} hint={u ? 'Déjala vacía para conservar la actual.' : 'Mínimo 8 caracteres con letras y números.'} className="sm:col-span-2">
           <Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
