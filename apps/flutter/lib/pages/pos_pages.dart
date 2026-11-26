@@ -227,7 +227,17 @@ class _PosPageState extends State<PosPage> {
                 context: context,
                 isScrollControlled: true,
                 backgroundColor: Colors.white,
-                builder: (_) => FractionallySizedBox(heightFactor: .9, child: StatefulBuilder(builder: (c, set) => _cartPanel(d.session!, d.partners))),
+                builder: (_) => FractionallySizedBox(
+                  heightFactor: .9,
+                  child: StatefulBuilder(
+                    builder: (c, setModal) => _cartPanel(
+                      d.session!,
+                      d.partners,
+                      setLocal: (fn) => setModal(fn),
+                      onBeforeClose: () => Navigator.of(c).pop(),
+                    ),
+                  ),
+                ),
               ),
               icon: const Icon(LucideIcons.shoppingBag, size: 18),
               label: Text('Ver carrito (${_cart.length}) · ${money(Totals.of(_cart).total)}'),
@@ -350,7 +360,12 @@ class _PosPageState extends State<PosPage> {
     );
   }
 
-  Widget _cartPanel(DbRow session, List<DbRow> partners) {
+  Widget _cartPanel(DbRow session, List<DbRow> partners, {void Function(VoidCallback fn)? setLocal, VoidCallback? onBeforeClose}) {
+    void upd(VoidCallback fn) {
+      if (mounted) setState(fn);
+      setLocal?.call(fn);
+    }
+
     final t = Totals.of(_cart);
     return Container(
       decoration: const BoxDecoration(color: Colors.white, border: Border(left: BorderSide(color: Kio.border))),
@@ -360,10 +375,13 @@ class _PosPageState extends State<PosPage> {
           child: Row(children: [
             Expanded(child: Text('Venta actual', style: Kio.h2(18))),
             if (_cart.isNotEmpty)
-              TextButton(onPressed: () => setState(_cart.clear), child: const Text('Vaciar')),
+              TextButton(onPressed: () => upd(_cart.clear), child: const Text('Vaciar')),
             const SizedBox(width: 4),
             FilledButton.tonalIcon(
-              onPressed: () => _closeSession(session),
+              onPressed: () {
+                onBeforeClose?.call();
+                _closeSession(session);
+              },
               icon: const Icon(LucideIcons.lock, size: 16),
               label: const Text('Cerrar caja'),
               style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
@@ -380,7 +398,7 @@ class _PosPageState extends State<PosPage> {
               const DropdownMenuItem<String?>(value: null, child: Text('Consumidor final')),
               for (final p in partners) DropdownMenuItem<String?>(value: p['id'] as String, child: Text(asStr(p['name']), overflow: TextOverflow.ellipsis)),
             ],
-            onChanged: (v) => setState(() => _partnerId = v),
+            onChanged: (v) => upd(() => _partnerId = v),
           ),
         ),
         const SizedBox(height: 10),
@@ -403,9 +421,9 @@ class _PosPageState extends State<PosPage> {
                             Text('${money(l.price * (1 + l.taxRate))} c/u', style: Kio.small),
                           ]),
                         ),
-                        _qtyBtn(LucideIcons.minus, () => setState(() => l.qty <= 1 ? _cart.removeAt(i) : l.qty -= 1)),
+                        _qtyBtn(LucideIcons.minus, () => upd(() => l.qty <= 1 ? _cart.removeAt(i) : l.qty -= 1)),
                         SizedBox(width: 42, child: Text(qty(l.qty), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
-                        _qtyBtn(LucideIcons.plus, () => setState(() => l.qty += 1)),
+                        _qtyBtn(LucideIcons.plus, () => upd(() => l.qty += 1)),
                         SizedBox(width: 92, child: Text(money(l.total), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))),
                       ]),
                     );
