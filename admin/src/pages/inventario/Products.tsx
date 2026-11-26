@@ -397,9 +397,11 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
   const availableWarehouses = warehouses.filter((w) => !associatedIds.has(w.id))
   const isEditingWs = !!wsForm.initial?.id
   const whOptions = (isEditingWs ? warehouses : availableWarehouses).map((w) => ({ value: w.id, label: w.name ?? w.id }))
+  const allocated = stocks.reduce((a, s) => a + (Number(s.qty) || 0), 0)
+  const unallocated = Math.max(0, (Number(p.stock) || 0) - allocated)
   const wsFields: FieldDef[] = [
     { key: 'warehouse_id', label: 'Bodega', type: 'select', required: true, options: whOptions },
-    { key: 'qty', label: 'Existencia', type: 'number', required: true, defaultValue: 0 },
+    { key: 'qty', label: 'Existencia en bodega', type: 'number', required: true, defaultValue: 0, hint: `Stock total producto: ${qty(p.stock)}. Asignado en bodegas: ${qty(allocated)}. Sin asignar: ${qty(unallocated)}.` },
     { key: 'min_qty', label: 'Stock mínimo', type: 'number', defaultValue: 0 },
     { key: 'active', label: 'Activo en bodega', type: 'boolean', defaultValue: 1 },
   ]
@@ -442,14 +444,17 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
       </div>
 
       <div className="mt-6 mb-2 flex items-center justify-between gap-3">
-        <h3 className="text-[15px] font-bold text-ink">Existencias por bodega</h3>
+        <div>
+          <h3 className="text-[15px] font-bold text-ink">Existencias por bodega</h3>
+          <p className="text-xs text-muted">Total producto: {qty(p.stock)} · Asignado en bodegas: {qty(allocated)} · Sin asignar: {qty(unallocated)}</p>
+        </div>
         {canStockWrite && (
           <Button
             size="sm"
             variant="secondary"
             icon={Plus}
             disabled={!availableWarehouses.length}
-            onClick={() => setWsForm({ open: true, initial: { product_id: p.id, warehouse_id: availableWarehouses[0]?.id ?? '', active: 1, qty: stocks.length ? 0 : (p.trackStock ? p.stock : 0), min_qty: p.minStock ?? 0 } })}
+            onClick={() => setWsForm({ open: true, initial: { product_id: p.id, warehouse_id: availableWarehouses[0]?.id ?? '', active: 1, qty: stocks.length ? unallocated : (p.trackStock ? p.stock : 0), min_qty: p.minStock ?? 0 } })}
           >
             {availableWarehouses.length ? 'Asociar bodega' : 'Todas las bodegas asociadas'}
           </Button>
