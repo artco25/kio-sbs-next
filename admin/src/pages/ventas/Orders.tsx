@@ -34,6 +34,7 @@ interface Data {
   nPos: { total: number }
   nBorrador: { total: number }
   nDevuelta: { total: number }
+  nDevParcial: { total: number }
   nAnulada: { total: number }
   receivables: { balance: number; dueDate: string | null }[]
   sites: Site[]
@@ -50,6 +51,7 @@ const Q = `query($from:String,$to:String,$pfrom:String,$pto:String,$channel:Stri
   nPos: sales(from:$from, to:$to, channel:"pos", siteId:$siteId, limit:1){ total }
   nBorrador: sales(from:$from, to:$to, status:"borrador", siteId:$siteId, limit:1){ total }
   nDevuelta: sales(from:$from, to:$to, status:"devuelta", siteId:$siteId, limit:1){ total }
+  nDevParcial: sales(from:$from, to:$to, status:"devuelta_parcial", siteId:$siteId, limit:1){ total }
   nAnulada: sales(from:$from, to:$to, status:"anulada", siteId:$siteId, limit:1){ total }
   receivables{ balance dueDate }
   sites{ id name }
@@ -82,13 +84,17 @@ export default function Orders() {
     pfrom: prevDates.from,
     pto: prevDates.to,
     channel: tab === 'pedidos' ? 'pedido' : tab === 'pos' ? 'pos' : null,
-    status: tab === 'cotizaciones' ? 'borrador' : tab === 'devueltas' ? 'devuelta' : tab === 'anuladas' ? 'anulada' : null,
+    status: tab === 'cotizaciones' ? 'borrador' : tab === 'anuladas' ? 'anulada' : null,
     search: q || null,
     siteId: siteId || null,
   }
   const { data, loading, error } = useGql<Data>(Q, vars)
 
-  const rows = useMemo(() => (data?.list.items ?? []).filter((s) => state === 'todos' || stateOf(s) === state), [data, state])
+  const rows = useMemo(() => {
+    let list = data?.list.items ?? []
+    if (tab === 'devueltas') list = list.filter((s) => s.status === 'devuelta' || s.status === 'devuelta_parcial')
+    return list.filter((s) => state === 'todos' || stateOf(s) === state)
+  }, [data, state, tab])
 
   const vendido = data?.confirmed.amount ?? 0
   const nVentas = data?.confirmed.total ?? 0
@@ -138,7 +144,7 @@ export default function Orders() {
             { key: 'pedidos', label: 'Pedidos', count: data?.nPedido.total },
             { key: 'pos', label: 'Caja POS', count: data?.nPos.total },
             { key: 'cotizaciones', label: 'Cotizaciones', count: data?.nBorrador.total },
-            { key: 'devueltas', label: 'Devueltas', count: data?.nDevuelta.total },
+            { key: 'devueltas', label: 'Devueltas', count: (data?.nDevuelta.total ?? 0) + (data?.nDevParcial.total ?? 0) },
             { key: 'anuladas', label: 'Anuladas', count: data?.nAnulada.total },
           ]}
         />

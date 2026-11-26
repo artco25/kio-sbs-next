@@ -582,13 +582,14 @@ function Viewer({ sale }: { sale: SaleDoc }) {
   const [returnMethod, setReturnMethod] = useState('efectivo')
   const [returnAmount, setReturnAmount] = useState('')
   const [returnNote, setReturnNote] = useState('')
+  const [returnLines, setReturnLines] = useState<{ lineId: string; productId: string | null; name: string; maxQty: number; qty: string; unitTotal: number }[]>([])
   const whQ = useGql<{ warehouses: { id: string; name: string; active: boolean; isDefault: boolean }[] }>('{ warehouses{ id name active isDefault } }')
 
   const confirmed = sale.status === 'confirmada'
   const balance = confirmed ? Math.max(0, toNum(sale.total) - toNum(sale.paid)) : 0
   const canPay = confirmed && balance > 0.5 && can('payments', 'write')
   const canVoid = isFinance && sale.status !== 'anulada' && sale.status !== 'devuelta' && can('sales', 'write')
-  const canReturn = confirmed && can('sales', 'write')
+  const canReturn = sale.status === 'confirmada' && can('sales', 'write')
   const credit = sale.paymentMode === 'credito'
 
   async function voidDoc() {
@@ -606,38 +607,58 @@ function Viewer({ sale }: { sale: SaleDoc }) {
 
   function openReturn() {
     const whs = (whQ.data?.warehouses ?? []).filter((w) => w.active)
+    const lines = sale.lines.map((l) => ({
+      lineId: l.id,
+      productId: l.productId,
+      name: l.name,
+      maxQty: toNum(l.qty),
+      qty: '0',
+      unitTotal: toNum(l.qty) > 0 ? toNum(l.total) / toNum(l.qty) : 0,
+    }))
+    setReturnLines(lines)
     setReturnWh(whs.find((w) => w.isDefault)?.id ?? whs[0]?.id ?? '')
-    setReturnAmount(String(Math.max(0, toNum(sale.paid))))
+    setReturnAmount('0')
     setReturnMethod('efectivo')
     setReturnNote('')
     setReturnOpen(true)
   }
 
+  function setReturnQty(lineId: string, qty: string) {
+    setReturnLines((prev) => {
+      const next = prev.map((l) => (l.lineId === lineId ? { ...l, qty } : l))
+      const suggested = next.reduce((s, l) => s + Math.max(0, Math.min(l.maxQty, toNum(l.qty))) * l.unitTotal, 0)
+      setReturnAmount(String(Math.min(toNum(sale.paid), Math.round(suggested))))
+      return next
+    })
+  }
+
   async function submitReturn() {
+    const selected = returnLines.map((l) => ({ ...l, q: Math.max(0, Math.min(l.maxQty, toNum(l.qty))) })).filter((l) => l.q > 0)
+    if (selected.length === 0) return toast('Selecciona al menos un producto y cantidad a devolver.', 'error')
     const amt = Math.max(0, toNum(returnAmount))
     const paid = Math.max(0, toNum(sale.paid))
     if (amt <= 0) return toast('Indica el valor a reembolsar.', 'error')
     if (amt > paid + 0.5) return toast(`El reembolso no puede superar lo pagado (${money(paid)}).`, 'error')
     if (!returnWh) return toast('Selecciona la bodega donde ingresa la devolución.', 'error')
-    if (!(await confirm({ title: 'Registrar devolución', message: `Se devolverán los productos al inventario y se registrará un reembolso de ${money(amt)} para ${sale.number}.`, confirmLabel: 'Registrar devolución', danger: true }))) return
+    const allReturned = returnLines.every((l) => Math.max(0, Math.min(l.maxQty, toNum(l.qty))) >= l.maxQty - 0.0001)
+    const fullyRefunded = amt >= paid - 0.5
+    const nextStatus = allReturned && fullyRefunded ? 'devuelta' : 'devuelta_parcial'
+    if (!(await confirm({ title: 'Registrar devolución', message: `Se devolverán ${selected.length} línea(s) al inventario y se registrará un reembolso de ${money(amt)} para ${sale.number}.`, confirmLabel: 'Registrar devolución', danger: true }))) return
     setReturning(true)
     try {
       const changes: Change[] = []
-      for (const l of sale.lines) {
+      for (const l of selected) {
         if (!l.productId) continue
-        const q = Math.max(0, toNum(l.qty))
-        if (!q) continue
-        changes.push({ table: 'stock_moves', row: { id: uuid(), product_id: l.productId, qty: q, kind: 'devolucion', ref_id: sale.id, date: today(), warehouse_id: returnWh, notes: `Devolución ${sale.number}` } })
+        changes.push({ table: 'stock_moves', row: { id: uuid(), product_id: l.productId, qty: l.q, kind: 'devolucion', ref_id: sale.id, date: today(), warehouse_id: returnWh, notes: `Devolución ${sale.number}${returnNote.trim() ? `: ${returnNote.trim()}` : ''}` } })
       }
       changes.push({
         table: 'payments',
         row: { id: uuid(), number: docNumber('DEV'), kind: 'reembolso', sale_id: sale.id, partner_id: sale.partner?.id ?? null, date: nowLocal(), method: returnMethod, amount: -amt, reference: `Devolución ${sale.number}`, notes: returnNote.trim() || null, user_id: me!.user.id },
       })
-      const fullyRefunded = amt >= paid - 0.5
-      changes.push({ table: 'sales', row: { id: sale.id, status: fullyRefunded ? 'devuelta' : sale.status } })
+      changes.push({ table: 'sales', row: { id: sale.id, status: nextStatus } })
       if (changes.length > 40) throw new Error(`La devolución genera ${changes.length} registros y el límite es 40. Divide la devolución.`)
       await saveRecords(changes)
-      toast('Devolución registrada')
+      toast(nextStatus === 'devuelta' ? 'Devolución total registrada' : 'Devolución parcial registrada')
       setReturnOpen(false)
       navigate(0)
     } catch (e) {
@@ -791,29 +812,49 @@ function Viewer({ sale }: { sale: SaleDoc }) {
       </div>
 
       <PayModal open={payOpen} onClose={() => setPayOpen(false)} sale={sale} balance={balance} userId={me!.user.id} />
-      <Modal open={returnOpen} onClose={() => setReturnOpen(false)} title="Registrar devolución" subtitle={`${sale.number} · Pagado ${money(sale.paid)}`} size="lg"
+      <Modal open={returnOpen} onClose={() => setReturnOpen(false)} title="Registrar devolución" subtitle={`${sale.number} · Pagado ${money(sale.paid)}`} size="xl"
         footer={<><Button variant="ghost" onClick={() => setReturnOpen(false)}>Cancelar</Button><Button icon={RotateCcw} loading={returning} onClick={submitReturn}>Confirmar devolución</Button></>}>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Bodega de ingreso" required hint="Donde entran los productos devueltos">
-            <Select value={returnWh} onChange={(e) => setReturnWh(e.target.value)}>
-              <option value="">Selecciona bodega…</option>
-              {(whQ.data?.warehouses ?? []).filter((w) => w.active).map((w) => <option key={w.id} value={w.id}>{w.name}{w.isDefault ? ' (principal)' : ''}</option>)}
-            </Select>
-          </Field>
-          <Field label="Método de reembolso" required>
-            <Select value={returnMethod} onChange={(e) => setReturnMethod(e.target.value)}>
-              {METHOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </Select>
-          </Field>
-          <Field label="Valor a reembolsar" required hint={`Máximo ${money(sale.paid)}`}>
-            <Input type="number" min="0" step="0.01" value={returnAmount} onChange={(e) => setReturnAmount(e.target.value)} />
-          </Field>
-          <Field label="Motivo / nota">
-            <Input value={returnNote} onChange={(e) => setReturnNote(e.target.value)} placeholder="Ej. Cliente se arrepintió, producto defectuoso…" />
-          </Field>
-        </div>
-        <div className="mt-4 rounded-2xl border border-warning/20 bg-warning-soft px-4 py-3 text-sm text-warning">
-          La devolución devolverá al inventario las líneas con producto de esta venta y registrará el reembolso. Si el reembolso cubre lo pagado, la venta pasará a estado <b>Devuelta</b>.
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-line overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-surface text-muted text-xs uppercase tracking-wider"><tr><th className="px-4 py-3 text-left">Producto</th><th className="px-4 py-3 text-right">Vendido</th><th className="px-4 py-3 text-right">Devolver</th><th className="px-4 py-3 text-right">Valor</th></tr></thead>
+              <tbody className="divide-y divide-line">
+                {returnLines.map((l) => {
+                  const q = Math.max(0, Math.min(l.maxQty, toNum(l.qty)))
+                  return (
+                    <tr key={l.lineId}>
+                      <td className="px-4 py-3 font-medium">{l.name}{!l.productId && <span className="ml-2 text-xs text-muted">(sin producto)</span>}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{qty(l.maxQty)}</td>
+                      <td className="px-4 py-3 text-right"><input type="number" min="0" max={l.maxQty} step="0.01" value={l.qty} onChange={(e) => setReturnQty(l.lineId, e.target.value)} className="w-24 rounded-xl border border-line bg-white px-3 py-1.5 text-right" /></td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold">{money(q * l.unitTotal)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Bodega de ingreso" required hint="Donde entran los productos devueltos">
+              <Select value={returnWh} onChange={(e) => setReturnWh(e.target.value)}>
+                <option value="">Selecciona bodega…</option>
+                {(whQ.data?.warehouses ?? []).filter((w) => w.active).map((w) => <option key={w.id} value={w.id}>{w.name}{w.isDefault ? ' (principal)' : ''}</option>)}
+              </Select>
+            </Field>
+            <Field label="Método de reembolso" required>
+              <Select value={returnMethod} onChange={(e) => setReturnMethod(e.target.value)}>
+                {METHOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </Select>
+            </Field>
+            <Field label="Valor a reembolsar" required hint={`Sugerido según líneas seleccionadas · Máximo ${money(sale.paid)}`}>
+              <Input type="number" min="0" step="0.01" value={returnAmount} onChange={(e) => setReturnAmount(e.target.value)} />
+            </Field>
+            <Field label="Motivo / nota">
+              <Input value={returnNote} onChange={(e) => setReturnNote(e.target.value)} placeholder="Ej. Cliente se arrepintió, producto defectuoso…" />
+            </Field>
+          </div>
+          <div className="rounded-2xl border border-warning/20 bg-warning-soft px-4 py-3 text-sm text-warning">
+            Selecciona las cantidades a devolver por línea. Se reintegrará stock solo de las líneas con producto. Si devuelves todo y reembolsas lo pagado, la venta quedará <b>Devuelta</b>; si es parcial, quedará <b>Devuelta parcial</b>.
+          </div>
         </div>
       </Modal>
     </>
