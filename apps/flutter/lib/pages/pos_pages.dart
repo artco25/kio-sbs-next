@@ -358,9 +358,16 @@ class _PosPageState extends State<PosPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
           child: Row(children: [
-            Text('Venta actual', style: Kio.h2(18)),
-            const Spacer(),
-            if (_cart.isNotEmpty) TextButton(onPressed: () => setState(_cart.clear), child: const Text('Vaciar')),
+            Expanded(child: Text('Venta actual', style: Kio.h2(18))),
+            if (_cart.isNotEmpty)
+              TextButton(onPressed: () => setState(_cart.clear), child: const Text('Vaciar')),
+            const SizedBox(width: 4),
+            FilledButton.tonalIcon(
+              onPressed: () => _closeSession(session),
+              icon: const Icon(LucideIcons.lock, size: 16),
+              label: const Text('Cerrar caja'),
+              style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+            ),
           ]),
         ),
         Padding(
