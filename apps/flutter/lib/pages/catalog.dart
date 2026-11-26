@@ -31,7 +31,7 @@ final kModules = <Module>[
   // Eje 1: Comercial (sale, stock, contacts, artix_cartera)
   Module('contactos', 'Contactos', LucideIcons.userRound, Kio.green, Suite.comercial, (_) => const PartnersPage(), (s) => s.canRead('partners')),
   Module('productos', 'Productos e inventario', LucideIcons.package, Kio.warning, Suite.comercial, (_) => const ProductsPage(), (s) => s.canRead('products')),
-  Module('pedidos', 'Pedidos de venta', LucideIcons.tag, Kio.green, Suite.comercial, (_) => const OrdersPage(), (s) => s.canRead('sales')),
+  Module('pedidos', 'Pedidos de venta', LucideIcons.shoppingBag, Kio.green, Suite.comercial, (_) => const OrdersPage(), (s) => s.canRead('sales')),
   Module('cartera', 'Cartera', LucideIcons.handCoins, Kio.info, Suite.comercial, (_) => const ReceivablesPage(), (s) => s.canRead('sales')),
 
   // Eje 2: Punto de venta (artix_pos, artix_kds)
