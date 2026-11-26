@@ -28,6 +28,7 @@ class SyncPage extends StatelessWidget {
       SyncState.syncing => 'Sincronizando…',
       SyncState.offline => 'Sin conexión (trabajando local)',
       SyncState.error => 'Error',
+      SyncState.paused => 'En pausa (sin actividad)',
     };
     return PageBody(children: [
       PageHeader(
