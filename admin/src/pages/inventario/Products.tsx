@@ -162,7 +162,7 @@ export default function Products() {
       render: (p) => (
         <div className="flex justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
           {canStock && p.trackStock && <IconButton icon={SlidersHorizontal} label="Ajustar stock" onClick={() => setAdjust({ mode: 'entrada', product: p })} />}
-          <IconButton icon={Warehouse} label="Bodegas / existencias" onClick={() => setDetailId(p.id)} />
+          <Button variant="secondary" size="sm" icon={Warehouse} onClick={() => setDetailId(p.id)}>Bodegas</Button>
           {canWrite && <IconButton icon={Pencil} label="Editar" onClick={() => setForm({ open: true, initial: toRow(p) })} />}
         </div>
       ),
@@ -356,7 +356,7 @@ export default function Products() {
         onClose={() => setForm((f) => ({ ...f, open: false }))}
         table="products"
         title={form.initial ? (form.initial.name as string) : 'Nuevo producto'}
-        subtitle={form.initial ? 'Editar producto' : 'Los cambios llegan a las cajas POS en menos de 90 segundos.'}
+        subtitle={form.initial ? 'Editar datos del producto. Para asignarlo a bodegas, usa el botón "Bodegas" en la lista.' : 'Los cambios llegan a las cajas POS en menos de 90 segundos.'}
         fields={fields}
         initial={form.initial}
         validate={(v) => {

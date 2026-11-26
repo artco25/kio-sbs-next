@@ -77,6 +77,7 @@ export default function Employees() {
   const { can, isAdmin } = useAuth()
   const canWrite = can('employees', 'write')
   const { data, loading, error, extended } = useEmployees()
+  const usersQ = useGql<{ users: { id: string; name: string | null; email: string }[] }>('query{ users{ id name email } }')
   const [filter, setFilter] = useState<StateFilter>('activos')
   const [search, setSearch] = useState('')
   const [form, setForm] = useState<{ open: boolean; initial: Row | null }>({ open: false, initial: null })
@@ -105,7 +106,11 @@ export default function Employees() {
 
   const isNew = !form.initial?.id
   // Sin lectura de los campos extendidos no se editan (evita sobrescribirlos con vacíos).
-  const fields = useMemo(() => [...FIELDS_BASE, ...(isNew || extended ? FIELDS_EXT : []), ...FIELDS_FLAGS.filter((f) => f.key !== 'integral_salary' || isNew || extended)], [isNew, extended])
+  const userOptions = useMemo(() => [{ value: '', label: '— Sin usuario vinculado —' }, ...(usersQ.data?.users ?? []).map((u) => ({ value: u.id, label: `${u.name ?? u.email} (${u.email})` }))], [usersQ.data])
+  const fields = useMemo(() => {
+    const base: FieldDef[] = [...FIELDS_BASE, { key: 'user_id', label: 'Usuario del sistema', type: 'select', options: userOptions, hint: 'Vincula este empleado con un usuario para accesos/reportes.' }]
+    return [...base, ...(isNew || extended ? FIELDS_EXT : []), ...FIELDS_FLAGS.filter((f) => f.key !== 'integral_salary' || isNew || extended)]
+  }, [isNew, extended, userOptions])
 
   const validate = (v: Row) => {
     const salary = Number(v.salary)
@@ -115,6 +120,7 @@ export default function Employees() {
     const dup = all.find((e) => e.id !== v.id && e.docNumber === v.doc_number && (e.docType ?? 'CC') === v.doc_type)
     if (dup) return `Ya existe un empleado con ese documento (${dup.name})`
     if (v.end_date && v.active === 1) v.active = 0
+    if (v.user_id === '') v.user_id = null
     return null
   }
 

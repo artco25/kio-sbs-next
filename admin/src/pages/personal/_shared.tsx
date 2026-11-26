@@ -21,6 +21,7 @@ export interface EmployeeRow {
   transportAid: boolean
   eps: string | null
   afp: string | null
+  userId?: string | null
   active: boolean
   /** Sólo si el API expone estos campos (ver `useEmployees().extended`). */
   arlRisk?: number | null
@@ -29,7 +30,7 @@ export interface EmployeeRow {
   bankAccount?: string | null
 }
 
-export const EMPLOYEE_BASE = 'id name docType docNumber email phone position department salary startDate endDate contractType payFrequency transportAid eps afp active'
+export const EMPLOYEE_BASE = 'id name docType docNumber email phone position department salary startDate endDate contractType payFrequency transportAid eps afp userId active'
 export const EMPLOYEE_EXT = 'arlRisk integralSalary bankName bankAccount'
 
 let extSupported: boolean | null = null
