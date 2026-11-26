@@ -19,6 +19,7 @@ interface SaleDoc {
   dueDate: string | null
   status: string
   paymentMode: string
+  siteId: string | null
   subtotal: number
   discountTotal: number
   taxTotal: number
@@ -28,13 +29,14 @@ interface SaleDoc {
   notes: string | null
   partner: (CreditPartner & { phone?: string | null; email?: string | null }) | null
   seller: { name: string } | null
+  site: { name: string } | null
   lines: { id: string; productId: string | null; name: string; qty: number; price: number; discountPct: number; taxRate: number; subtotal: number; tax: number; total: number }[]
   payments: { id: string; number: string; kind: string; date: string; method: string; amount: number; reference: string | null }[]
 }
 
 const SALE_Q = `query($id:ID!){ sale(id:$id){
-  id number channel date dueDate status paymentMode subtotal discountTotal taxTotal total paid balance notes
-  partner{ ${CREDIT_FIELDS} phone email } seller{ name }
+  id number channel date dueDate status paymentMode siteId subtotal discountTotal taxTotal total paid balance notes
+  partner{ ${CREDIT_FIELDS} phone email } seller{ name } site{ name }
   lines{ id productId name qty price discountPct taxRate subtotal tax total }
   payments{ id number kind date method amount reference }
 } }`
@@ -149,6 +151,7 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
   const [busy, setBusy] = useState<null | 'draft' | 'confirm' | 'void'>(null)
 
   const [partnerId, setPartnerId] = useState(initial?.partner?.id ?? '')
+  const [siteId, setSiteId] = useState(initial?.siteId ?? '')
   const [mode, setMode] = useState<'contado' | 'credito'>(initial?.paymentMode === 'credito' ? 'credito' : 'contado')
   const [method, setMethod] = useState('efectivo')
   const [dueDate, setDueDate] = useState(initial?.dueDate?.slice(0, 10) ?? '')
@@ -157,6 +160,8 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
     (initial?.lines ?? []).map((l) => ({ key: l.id, productId: l.productId, name: l.name, qty: String(l.qty), price: String(l.price), discount: String(l.discountPct || 0), taxRate: toNum(l.taxRate) })),
   )
   const [meta, setMeta] = useState<Record<string, Meta>>({})
+  const sitesQ = useGql<{ sites: { id: string; name: string; active: boolean }[] }>('{ sites{ id name active } }')
+  const sites = useMemo(() => (sitesQ.data?.sites ?? []).filter((s) => s.active), [sitesQ.data])
 
   // Clientes
   const customers = useGql<{ partners: { items: CreditPartner[] } }>(CUSTOMERS_Q)
@@ -245,6 +250,7 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
         id: saleId,
         number: initial?.number ?? docNumber('PED'),
         channel: 'pedido',
+        site_id: siteId || null,
         partner_id: partnerId || null,
         seller_id: me!.user.id,
         date: confirm || !initial ? nowLocal() : initial.date,
@@ -349,6 +355,14 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
         <div className="space-y-6">
           <Card title="Cliente y pago">
             <div className="space-y-4">
+              <Field label="Sede / tienda" hint="Sede donde se atiende este pedido.">
+                <Select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+                  <option value="">Sin sede asignada</option>
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </Select>
+              </Field>
               <Field label="Cliente" hint={customers.error ? customers.error.message : mode === 'credito' ? 'Obligatorio para vender a crédito' : 'Sin cliente se registra como consumidor final'}>
                 <Select value={partnerId} onChange={(e) => changePartner(e.target.value)}>
                   <option value="">Sin cliente (consumidor final)</option>
@@ -591,6 +605,7 @@ function Viewer({ sale }: { sale: SaleDoc }) {
           <span className="inline-flex flex-wrap items-center gap-2">
             <ChannelBadge channel={sale.channel} />
             <PaymentState sale={sale} />
+            {sale.site?.name && <span className="text-muted">Sede: {sale.site.name}</span>}
             <span>{dateTime(sale.date)}</span>
           </span>
         }

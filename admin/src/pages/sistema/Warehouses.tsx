@@ -16,35 +16,40 @@ interface WarehouseItem {
   siteId: string | null
   active: boolean
   isDefault: boolean
+  storageCapacity: number
 }
 interface Ws { warehouseId: string; qty: number; productId: string }
+interface Move { warehouseId: string | null; qty: number }
 
-const Q = `{ warehouses{ id name code kind siteId active isDefault } sites{ id name } warehouseStocks{ warehouseId qty productId } }`
+const Q = `{ warehouses{ id name code kind siteId active isDefault storageCapacity } sites{ id name } warehouseStocks{ warehouseId qty productId } stockMoves(kind:"averia", limit:500){ warehouseId qty } }`
 const KIND: Record<string, string> = { main: 'CEDI/Principal', store: 'Bodega sede', transit: 'Tránsito', virtual: 'Virtual', returns: 'Devoluciones' }
 
 export default function Warehouses() {
   const { can } = useAuth()
   const canWrite = can('warehouses', 'write')
-  const { data, loading, error } = useGql<{ warehouses: WarehouseItem[]; sites: Site[]; warehouseStocks: Ws[] }>(Q)
+  const { data, loading, error } = useGql<{ warehouses: WarehouseItem[]; sites: Site[]; warehouseStocks: Ws[]; stockMoves: Move[] }>(Q)
   const [form, setForm] = useState<{ open: boolean; initial: Row | null }>({ open: false, initial: null })
   const items = data?.warehouses ?? []
   const sites = data?.sites ?? []
   const stocks = data?.warehouseStocks ?? []
+  const averias = data?.stockMoves ?? []
   const siteName = (id: string | null) => sites.find((s) => s.id === id)?.name ?? '—'
   const summary = (warehouseId: string) => {
     const rows = stocks.filter((s) => s.warehouseId === warehouseId)
     const skus = new Set(rows.map((r) => r.productId)).size
     const units = rows.reduce((a, r) => a + (Number(r.qty) || 0), 0)
-    return { skus, units }
+    const averiaUnits = averias.filter((m) => m.warehouseId === warehouseId).reduce((a, m) => a + Math.abs(Number(m.qty) || 0), 0)
+    return { skus, units, averiaUnits }
   }
 
-  const open = (w?: WarehouseItem) => setForm({ open: true, initial: w ? { id: w.id, name: w.name, code: w.code, kind: w.kind ?? 'store', site_id: w.siteId, active: w.active, is_default: w.isDefault } : null })
+  const open = (w?: WarehouseItem) => setForm({ open: true, initial: w ? { id: w.id, name: w.name, code: w.code, kind: w.kind ?? 'store', site_id: w.siteId, storage_capacity: w.storageCapacity ?? 0, active: w.active, is_default: w.isDefault } : { kind: 'store', active: true, is_default: false, storage_capacity: 0 } })
 
   const fields: FieldDef[] = [
     { key: 'name', label: 'Nombre', required: true, full: true },
     { key: 'code', label: 'Código', placeholder: 'BOD-01' },
     { key: 'site_id', label: 'Sede', type: 'select', options: [{ value: '', label: 'Sin sede' }, ...sites.map((s) => ({ value: s.id, label: s.name }))] },
     { key: 'kind', label: 'Tipo', type: 'select', options: Object.entries(KIND).map(([value, label]) => ({ value, label })), defaultValue: 'store' },
+    { key: 'storage_capacity', label: 'Capacidad (unidades)', type: 'number', defaultValue: 0, hint: '0 = sin límite definido' },
     { key: 'active', label: 'Activa', type: 'boolean', defaultValue: true },
     { key: 'is_default', label: 'Bodega principal', type: 'boolean', defaultValue: false },
   ]
@@ -55,6 +60,15 @@ export default function Warehouses() {
     { key: 'kind', header: 'Tipo', render: (w) => <Badge tone="neutral">{KIND[w.kind ?? ''] ?? w.kind ?? '—'}</Badge> },
     { key: 'skus', header: 'Líneas/SKUs', align: 'right', render: (w) => <span className="font-semibold tabular-nums">{qty(summary(w.id).skus)}</span> },
     { key: 'units', header: 'Ítems total', align: 'right', render: (w) => <span className="font-semibold tabular-nums">{qty(summary(w.id).units)}</span> },
+    { key: 'averias', header: 'Averías', align: 'right', render: (w) => { const a = summary(w.id).averiaUnits; return <span className={a > 0 ? 'font-semibold tabular-nums text-danger' : 'text-muted'}>{a > 0 ? qty(a) : '—'}</span> } },
+    { key: 'cap', header: 'Capacidad', align: 'right', render: (w) => {
+      const cap = Number(w.storageCapacity) || 0
+      const used = summary(w.id).units
+      if (!cap) return <span className="text-muted">Sin definir</span>
+      const pct = Math.min(100, Math.round((used / cap) * 100))
+      const tone = pct >= 100 ? 'danger' : pct >= 85 ? 'warning' : 'neutral'
+      return <div className="text-right"><div className="font-semibold tabular-nums">{qty(used)} / {qty(cap)}</div><Badge tone={tone as any}>{pct}%</Badge></div>
+    } },
     { key: 'status', header: 'Estado', render: (w) => <Badge tone={w.active ? 'success' : 'neutral'}>{w.active ? 'Activa' : 'Inactiva'}</Badge> },
     { key: 'act', header: '', align: 'right', render: (w) => canWrite ? <div className="flex justify-end"><IconButton icon={Pencil} label="Editar" onClick={() => open(w)} /></div> : null },
   ]

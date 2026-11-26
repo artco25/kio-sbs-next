@@ -1,4 +1,4 @@
-import { CalendarDays, Download, HandCoins, Plus, Receipt, ShoppingBag, Tag } from 'lucide-react'
+import { CalendarDays, Download, HandCoins, MapPin, Plus, Receipt, ShoppingBag, Tag } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { KpiCard } from '../../components/charts'
@@ -19,9 +19,11 @@ interface SaleRow {
   paymentMode: string
   total: number
   paid: number
+  siteId: string | null
   partner: { name: string } | null
   seller: { name: string } | null
 }
+interface Site { id: string; name: string }
 
 interface Data {
   list: { total: number; amount: number; items: SaleRow[] }
@@ -33,20 +35,22 @@ interface Data {
   nBorrador: { total: number }
   nAnulada: { total: number }
   receivables: { balance: number; dueDate: string | null }[]
+  sites: Site[]
 }
 
-const Q = `query($from:String,$to:String,$pfrom:String,$pto:String,$channel:String,$status:String,$search:String){
-  list: sales(from:$from, to:$to, channel:$channel, status:$status, search:$search, limit:500){
-    total amount items{ id number channel date status paymentMode total paid partner{ name } seller{ name } }
+const Q = `query($from:String,$to:String,$pfrom:String,$pto:String,$channel:String,$status:String,$search:String,$siteId:ID){
+  list: sales(from:$from, to:$to, channel:$channel, status:$status, search:$search, siteId:$siteId, limit:500){
+    total amount items{ id number channel date status paymentMode total paid siteId partner{ name } seller{ name } }
   }
-  confirmed: sales(from:$from, to:$to, status:"confirmada", limit:500){ total amount items{ date total } }
-  prev: sales(from:$pfrom, to:$pto, status:"confirmada", limit:1){ total amount }
-  nAll: sales(from:$from, to:$to, limit:1){ total }
-  nPedido: sales(from:$from, to:$to, channel:"pedido", limit:1){ total }
-  nPos: sales(from:$from, to:$to, channel:"pos", limit:1){ total }
-  nBorrador: sales(from:$from, to:$to, status:"borrador", limit:1){ total }
-  nAnulada: sales(from:$from, to:$to, status:"anulada", limit:1){ total }
+  confirmed: sales(from:$from, to:$to, status:"confirmada", siteId:$siteId, limit:500){ total amount items{ date total } }
+  prev: sales(from:$pfrom, to:$pto, status:"confirmada", siteId:$siteId, limit:1){ total amount }
+  nAll: sales(from:$from, to:$to, siteId:$siteId, limit:1){ total }
+  nPedido: sales(from:$from, to:$to, channel:"pedido", siteId:$siteId, limit:1){ total }
+  nPos: sales(from:$from, to:$to, channel:"pos", siteId:$siteId, limit:1){ total }
+  nBorrador: sales(from:$from, to:$to, status:"borrador", siteId:$siteId, limit:1){ total }
+  nAnulada: sales(from:$from, to:$to, status:"anulada", siteId:$siteId, limit:1){ total }
   receivables{ balance dueDate }
+  sites{ id name }
 }`
 
 type TabKey = 'todas' | 'pedidos' | 'pos' | 'cotizaciones' | 'anuladas'
@@ -66,6 +70,7 @@ export default function Orders() {
   const [tab, setTab] = useState<TabKey>('todas')
   const [search, setSearch] = useState('')
   const [state, setState] = useState<StateKey>('todos')
+  const [siteId, setSiteId] = useState('')
   const q = useDebounced(search.trim(), 300)
 
   const dates = useMemo(() => periodDates(period), [period])
@@ -77,6 +82,7 @@ export default function Orders() {
     channel: tab === 'pedidos' ? 'pedido' : tab === 'pos' ? 'pos' : null,
     status: tab === 'cotizaciones' ? 'borrador' : tab === 'anuladas' ? 'anulada' : null,
     search: q || null,
+    siteId: siteId || null,
   }
   const { data, loading, error } = useGql<Data>(Q, vars)
 
@@ -94,6 +100,7 @@ export default function Orders() {
   const overdue = (data?.receivables ?? []).filter((r) => r.dueDate && r.dueDate.slice(0, 10) < hoy).reduce((s, r) => s + toNum(r.balance), 0)
 
   const truncated = (data?.list.total ?? 0) > (data?.list.items.length ?? 0)
+  const siteOptions = useMemo(() => [{ value: '', label: 'Todas las sedes' }, ...(data?.sites ?? []).map((s) => ({ value: s.id, label: s.name }))], [data?.sites])
 
   return (
     <>
@@ -174,6 +181,7 @@ export default function Orders() {
           }
         >
           <SearchInput value={search} onChange={setSearch} placeholder="Buscar por documento o cliente…" />
+          <FilterSelect value={siteId} onChange={setSiteId} icon={MapPin} options={siteOptions} />
           <FilterSelect<StateKey>
             value={state}
             onChange={setState}
