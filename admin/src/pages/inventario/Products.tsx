@@ -30,16 +30,20 @@ import {
   type StockMode,
 } from './_shared'
 
+interface WH { id: string; name: string | null; siteId: string | null; active: boolean; isDefault: boolean }
+interface WS { id: string; siteId: string | null; warehouseId: string; productId: string; qty: number; minQty: number; active: boolean; warehouse?: { id: string; name: string | null } | null }
 interface Data {
   products: { total: number; items: Prod[] }
   categories: { id: string; name: string | null; color: string | null; productCount: number }[]
   stockMoves: Move[]
+  warehouses: WH[]
 }
 
 const Q = `query{
   products(limit:500){ total items{ ${PRODUCT_FIELDS} } }
   categories{ id name color productCount }
   stockMoves(limit:500){ id productId qty date }
+  warehouses{ id name siteId active isDefault }
 }`
 
 type StatusFilter = 'todos' | 'activos' | 'inactivos' | 'bajo'
@@ -267,6 +271,7 @@ export default function Products() {
       {detail && (
         <ProductDetail
           p={detail}
+          warehouses={(data?.warehouses ?? []).filter((w) => w.active)}
           onClose={() => setDetailId(null)}
           onEdit={canWrite ? () => { setForm({ open: true, initial: toRow(detail) }); setDetailId(null) } : undefined}
           onAdjust={canStock && detail.trackStock ? () => setAdjust({ mode: 'entrada', product: detail }) : undefined}
@@ -278,10 +283,26 @@ export default function Products() {
   )
 }
 
-function ProductDetail({ p, onClose, onEdit, onAdjust }: { p: Prod; onClose: () => void; onEdit?: () => void; onAdjust?: () => void }) {
-  const { data, loading, error } = useGql<{ stockMoves: Move[] }>(`query($id:ID!){ stockMoves(productId:$id, limit:20){ ${MOVE_FIELDS} } }`, { id: p.id })
+function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; warehouses: WH[]; onClose: () => void; onEdit?: () => void; onAdjust?: () => void }) {
+  const { can } = useAuth()
+  const canStockWrite = can('warehouse_stocks', 'write')
+  const movesQ = useGql<{ stockMoves: Move[] }>(`query($id:ID!){ stockMoves(productId:$id, limit:20){ ${MOVE_FIELDS} } }`, { id: p.id })
+  const stocksQ = useGql<{ warehouseStocks: WS[] }>(
+    `query($id:ID!){ warehouseStocks(productId:$id){ id siteId warehouseId productId qty minQty active warehouse{ id name } } }`,
+    { id: p.id },
+  )
+  const [wsForm, setWsForm] = useState<{ open: boolean; initial: Row | null }>({ open: false, initial: null })
   const m = marginOf(p)
   const lvl = stockLevel(p)
+  const stocks = stocksQ.data?.warehouseStocks ?? []
+  const whOptions = warehouses.map((w) => ({ value: w.id, label: w.name ?? w.id }))
+  const wsFields: FieldDef[] = [
+    { key: 'warehouse_id', label: 'Bodega', type: 'select', required: true, options: whOptions },
+    { key: 'qty', label: 'Existencia', type: 'number', required: true, defaultValue: 0 },
+    { key: 'min_qty', label: 'Stock mínimo', type: 'number', defaultValue: 0 },
+    { key: 'active', label: 'Activo en bodega', type: 'boolean', defaultValue: 1 },
+  ]
+
   return (
     <Modal
       open
@@ -298,19 +319,9 @@ function ProductDetail({ p, onClose, onEdit, onAdjust }: { p: Prod; onClose: () 
       }
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
-            Cerrar
-          </Button>
-          {onAdjust && (
-            <Button variant="secondary" icon={SlidersHorizontal} onClick={onAdjust}>
-              Ajustar stock
-            </Button>
-          )}
-          {onEdit && (
-            <Button icon={Pencil} onClick={onEdit}>
-              Editar producto
-            </Button>
-          )}
+          <Button variant="secondary" onClick={onClose}>Cerrar</Button>
+          {onAdjust && <Button variant="secondary" icon={SlidersHorizontal} onClick={onAdjust}>Ajustar stock</Button>}
+          {onEdit && <Button icon={Pencil} onClick={onEdit}>Editar producto</Button>}
         </>
       }
     >
@@ -323,19 +334,50 @@ function ProductDetail({ p, onClose, onEdit, onAdjust }: { p: Prod; onClose: () 
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <KpiCard icon={Package} label="Existencia" value={p.trackStock ? `${qty(p.stock)} ${unitLabel(p.unit)}` : 'Sin control'} tone={lvl === 'out' ? 'danger' : lvl === 'low' ? 'warning' : 'success'} hint={p.trackStock ? `Mínimo ${qty(p.minStock)} ${unitLabel(p.unit)}` : 'No controla inventario'} />
+        <KpiCard icon={Package} label="Existencia total" value={p.trackStock ? `${qty(p.stock)} ${unitLabel(p.unit)}` : 'Sin control'} tone={lvl === 'out' ? 'danger' : lvl === 'low' ? 'warning' : 'success'} hint={p.trackStock ? `Mínimo ${qty(p.minStock)} ${unitLabel(p.unit)}` : 'No controla inventario'} />
         <KpiCard icon={Warehouse} label="Valor a costo" value={money(stockValue(p))} tone="info" hint={`Costo unitario ${money(p.cost)}`} />
         <KpiCard icon={Percent} label="Margen" value={m == null ? '—' : pct(m, 1)} tone={m != null && m < 0.15 ? 'warning' : 'success'} hint={`Utilidad por unidad ${money(p.price - p.cost)}`} />
         <KpiCard icon={Tags} label="Precio con IVA" value={money(priceWithTax(p))} hint={`Sin IVA ${money(p.price)}`} />
       </div>
 
+      <div className="mt-6 mb-2 flex items-center justify-between gap-3">
+        <h3 className="text-[15px] font-bold text-ink">Existencias por bodega</h3>
+        {canStockWrite && (
+          <Button size="sm" variant="secondary" icon={Plus} onClick={() => setWsForm({ open: true, initial: { product_id: p.id, active: 1, qty: 0, min_qty: 0 } })}>
+            Asociar bodega
+          </Button>
+        )}
+      </div>
+      <ErrorBox error={stocksQ.error} />
+      <div className="-mx-6 border-t border-line">
+        <DataTable<WS>
+          pageSize={6}
+          loading={stocksQ.loading}
+          rows={stocks}
+          columns={[
+            { key: 'warehouse', header: 'Bodega', render: (r) => <span className="font-medium text-ink">{r.warehouse?.name ?? r.warehouseId}</span> },
+            { key: 'qty', header: 'Existencia', align: 'right', render: (r) => <span className="font-semibold">{qty(r.qty)} {unitLabel(p.unit)}</span> },
+            { key: 'min', header: 'Mínimo', align: 'right', hideSm: true, render: (r) => <span className="text-muted">{qty(r.minQty)}</span> },
+            { key: 'active', header: 'Estado', hideSm: true, render: (r) => <StatusBadge status={r.active ? 'activo' : 'inactivo'} /> },
+            {
+              key: 'actions', header: '', align: 'right', render: (r) => canStockWrite ? (
+                <div onClick={(e) => e.stopPropagation()}>
+                  <IconButton icon={Pencil} label="Editar" onClick={() => setWsForm({ open: true, initial: { id: r.id, warehouse_id: r.warehouseId, product_id: r.productId, qty: r.qty, min_qty: r.minQty, active: r.active ? 1 : 0, site_id: r.siteId ?? '' } })} />
+                </div>
+              ) : null,
+            },
+          ]}
+          empty={<EmptyState icon={Warehouse} title="Sin bodegas asociadas" message="Asocia este producto a una bodega para controlar existencias por ubicación." />}
+        />
+      </div>
+
       <h3 className="mt-6 mb-2 text-[15px] font-bold text-ink">Últimos movimientos</h3>
-      <ErrorBox error={error} />
+      <ErrorBox error={movesQ.error} />
       <div className="-mx-6 border-t border-line">
         <DataTable<Move>
           pageSize={6}
-          loading={loading}
-          rows={data?.stockMoves ?? []}
+          loading={movesQ.loading}
+          rows={movesQ.data?.stockMoves ?? []}
           columns={[
             { key: 'date', header: 'Fecha', render: (r) => <span className="text-muted">{date(r.date)}</span> },
             { key: 'kind', header: 'Tipo', render: (r) => <KindBadge kind={r.kind} /> },
@@ -346,6 +388,23 @@ function ProductDetail({ p, onClose, onEdit, onAdjust }: { p: Prod; onClose: () 
           empty={<EmptyState icon={SlidersHorizontal} title="Sin movimientos" message={p.trackStock ? 'Registra una entrada para empezar el kardex de este producto.' : 'Este producto no controla inventario.'} />}
         />
       </div>
+
+      <RecordForm
+        open={wsForm.open}
+        onClose={() => setWsForm((s) => ({ ...s, open: false }))}
+        table="warehouse_stocks"
+        title={wsForm.initial?.id ? 'Editar existencia por bodega' : 'Asociar producto a bodega'}
+        subtitle={p.name ?? 'Producto'}
+        fields={wsFields}
+        initial={wsForm.initial}
+        validate={(v) => {
+          v.product_id = p.id
+          const wh = warehouses.find((w) => w.id === v.warehouse_id)
+          if (wh?.siteId) v.site_id = wh.siteId
+          if (Number(v.qty) < 0 || Number(v.min_qty) < 0) return 'Las cantidades no pueden ser negativas.'
+          return null
+        }}
+      />
     </Modal>
   )
 }
