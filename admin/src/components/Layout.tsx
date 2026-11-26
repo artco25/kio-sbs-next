@@ -18,27 +18,44 @@ function greeting() {
   return h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches'
 }
 
-/** Suite activa: la guardada o, si la ruta pertenece a otra suite del usuario, esa. */
+/** Suite activa: guardada en localStorage. Se auto-corrige por ruta o si es inválida. */
 function useSuite(): SuiteKey | null {
   const auth = useAuth()
   const location = useLocation()
   const [suite, setSuite] = useState<SuiteKey | null>(() => getCurrentSuite())
+  const suiteRef = useRef(suite)
+  suiteRef.current = suite
+  const authRef = useRef(auth)
+  authRef.current = auth
+
   useEffect(() => {
     const h = () => setSuite(getCurrentSuite())
     window.addEventListener('kio:suite', h)
     return () => window.removeEventListener('kio:suite', h)
   }, [])
+
+  // Suite inválida para el usuario -> primera disponible.
   useEffect(() => {
-    const mod = MODULES.find((m) => location.pathname === m.path || location.pathname.startsWith(`${m.path}/`))
     const valid = !!suite && auth.hasSuite(suite)
-    if (mod && mod.path !== '/panel' && (!valid || !mod.suites.includes(suite!))) {
-      const s = mod.suites.find((x) => auth.hasSuite(x))
-      if (s) setCurrentSuite(s)
-    } else if (!valid) {
+    if (!valid) {
       const first = SUITES.find((s) => auth.hasSuite(s.key))
       if (first) setCurrentSuite(first.key)
     }
-  }, [location.pathname, suite, auth])
+  }, [suite, auth])
+
+  // Ruta fuera de la suite activa -> cambiar suite según ruta (solo al navegar).
+  useEffect(() => {
+    const mod = MODULES.find((m) => location.pathname === m.path || location.pathname.startsWith(`${m.path}/`))
+    if (!mod || mod.path === '/panel') return
+    const cur = suiteRef.current
+    const a = authRef.current
+    const valid = !!cur && a.hasSuite(cur)
+    if (valid && !mod.suites.includes(cur)) {
+      const s = mod.suites.find((x) => a.hasSuite(x))
+      if (s) setCurrentSuite(s)
+    }
+  }, [location.pathname])
+
   return suite && auth.hasSuite(suite) ? suite : null
 }
 
