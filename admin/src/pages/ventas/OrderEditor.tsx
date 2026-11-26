@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, Banknote, CheckCircle2, FilePenLine, Package, Plus, Printer, Save, Search, Trash2, UserRound } from 'lucide-react'
+import { ArrowLeft, Ban, Banknote, CheckCircle2, FilePenLine, Package, Plus, Printer, RotateCcw, Save, Search, Trash2, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, Field, IconButton, IconTile, ICON, Input, Modal, NameCell, PageHeader, Select, Spinner, Textarea, useFeedback } from '../../components/ui'
@@ -576,11 +576,19 @@ function Viewer({ sale }: { sale: SaleDoc }) {
   const { toast, confirm } = useFeedback()
   const [payOpen, setPayOpen] = useState(false)
   const [voiding, setVoiding] = useState(false)
+  const [returnOpen, setReturnOpen] = useState(false)
+  const [returning, setReturning] = useState(false)
+  const [returnWh, setReturnWh] = useState('')
+  const [returnMethod, setReturnMethod] = useState('efectivo')
+  const [returnAmount, setReturnAmount] = useState('')
+  const [returnNote, setReturnNote] = useState('')
+  const whQ = useGql<{ warehouses: { id: string; name: string; active: boolean; isDefault: boolean }[] }>('{ warehouses{ id name active isDefault } }')
 
   const confirmed = sale.status === 'confirmada'
   const balance = confirmed ? Math.max(0, toNum(sale.total) - toNum(sale.paid)) : 0
   const canPay = confirmed && balance > 0.5 && can('payments', 'write')
-  const canVoid = isFinance && sale.status !== 'anulada' && can('sales', 'write')
+  const canVoid = isFinance && sale.status !== 'anulada' && sale.status !== 'devuelta' && can('sales', 'write')
+  const canReturn = confirmed && can('sales', 'write')
   const credit = sale.paymentMode === 'credito'
 
   async function voidDoc() {
@@ -593,6 +601,49 @@ function Viewer({ sale }: { sale: SaleDoc }) {
       toast((e as Error).message, 'error')
     } finally {
       setVoiding(false)
+    }
+  }
+
+  function openReturn() {
+    const whs = (whQ.data?.warehouses ?? []).filter((w) => w.active)
+    setReturnWh(whs.find((w) => w.isDefault)?.id ?? whs[0]?.id ?? '')
+    setReturnAmount(String(Math.max(0, toNum(sale.paid))))
+    setReturnMethod('efectivo')
+    setReturnNote('')
+    setReturnOpen(true)
+  }
+
+  async function submitReturn() {
+    const amt = Math.max(0, toNum(returnAmount))
+    const paid = Math.max(0, toNum(sale.paid))
+    if (amt <= 0) return toast('Indica el valor a reembolsar.', 'error')
+    if (amt > paid + 0.5) return toast(`El reembolso no puede superar lo pagado (${money(paid)}).`, 'error')
+    if (!returnWh) return toast('Selecciona la bodega donde ingresa la devolución.', 'error')
+    if (!(await confirm({ title: 'Registrar devolución', message: `Se devolverán los productos al inventario y se registrará un reembolso de ${money(amt)} para ${sale.number}.`, confirmLabel: 'Registrar devolución', danger: true }))) return
+    setReturning(true)
+    try {
+      const changes: Change[] = []
+      for (const l of sale.lines) {
+        if (!l.productId) continue
+        const q = Math.max(0, toNum(l.qty))
+        if (!q) continue
+        changes.push({ table: 'stock_moves', row: { id: uuid(), product_id: l.productId, qty: q, kind: 'devolucion', ref_id: sale.id, date: today(), warehouse_id: returnWh, notes: `Devolución ${sale.number}` } })
+      }
+      changes.push({
+        table: 'payments',
+        row: { id: uuid(), number: docNumber('DEV'), kind: 'reembolso', sale_id: sale.id, partner_id: sale.partner?.id ?? null, date: nowLocal(), method: returnMethod, amount: -amt, reference: `Devolución ${sale.number}`, notes: returnNote.trim() || null, user_id: me!.user.id },
+      })
+      const fullyRefunded = amt >= paid - 0.5
+      changes.push({ table: 'sales', row: { id: sale.id, status: fullyRefunded ? 'devuelta' : sale.status } })
+      if (changes.length > 40) throw new Error(`La devolución genera ${changes.length} registros y el límite es 40. Divide la devolución.`)
+      await saveRecords(changes)
+      toast('Devolución registrada')
+      setReturnOpen(false)
+      navigate(0)
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setReturning(false)
     }
   }
 
@@ -619,6 +670,11 @@ function Viewer({ sale }: { sale: SaleDoc }) {
             <Button variant="secondary" icon={Printer} onClick={() => window.print()}>
               Imprimir
             </Button>
+            {canReturn && (
+              <Button variant="secondary" icon={RotateCcw} onClick={openReturn}>
+                Devolución
+              </Button>
+            )}
             {canPay && (
               <Button icon={Banknote} onClick={() => setPayOpen(true)}>
                 Registrar pago
@@ -632,6 +688,12 @@ function Viewer({ sale }: { sale: SaleDoc }) {
         <div className="no-print mb-5 flex items-center gap-3 rounded-2xl border border-danger/20 bg-danger-soft px-4 py-3 text-sm text-danger">
           <Ban {...ICON} />
           Este documento está anulado y no cuenta en ventas ni en cartera.
+        </div>
+      )}
+      {sale.status === 'devuelta' && (
+        <div className="no-print mb-5 flex items-center gap-3 rounded-2xl border border-warning/20 bg-warning-soft px-4 py-3 text-sm text-warning">
+          <RotateCcw {...ICON} />
+          Este documento fue devuelto. Los productos fueron reintegrados al inventario y se registró el reembolso.
         </div>
       )}
 
@@ -729,6 +791,31 @@ function Viewer({ sale }: { sale: SaleDoc }) {
       </div>
 
       <PayModal open={payOpen} onClose={() => setPayOpen(false)} sale={sale} balance={balance} userId={me!.user.id} />
+      <Modal open={returnOpen} onClose={() => setReturnOpen(false)} title="Registrar devolución" subtitle={`${sale.number} · Pagado ${money(sale.paid)}`} size="lg"
+        footer={<><Button variant="ghost" onClick={() => setReturnOpen(false)}>Cancelar</Button><Button icon={RotateCcw} loading={returning} onClick={submitReturn}>Confirmar devolución</Button></>}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Bodega de ingreso" required hint="Donde entran los productos devueltos">
+            <Select value={returnWh} onChange={(e) => setReturnWh(e.target.value)}>
+              <option value="">Selecciona bodega…</option>
+              {(whQ.data?.warehouses ?? []).filter((w) => w.active).map((w) => <option key={w.id} value={w.id}>{w.name}{w.isDefault ? ' (principal)' : ''}</option>)}
+            </Select>
+          </Field>
+          <Field label="Método de reembolso" required>
+            <Select value={returnMethod} onChange={(e) => setReturnMethod(e.target.value)}>
+              {METHOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </Select>
+          </Field>
+          <Field label="Valor a reembolsar" required hint={`Máximo ${money(sale.paid)}`}>
+            <Input type="number" min="0" step="0.01" value={returnAmount} onChange={(e) => setReturnAmount(e.target.value)} />
+          </Field>
+          <Field label="Motivo / nota">
+            <Input value={returnNote} onChange={(e) => setReturnNote(e.target.value)} placeholder="Ej. Cliente se arrepintió, producto defectuoso…" />
+          </Field>
+        </div>
+        <div className="mt-4 rounded-2xl border border-warning/20 bg-warning-soft px-4 py-3 text-sm text-warning">
+          La devolución devolverá al inventario las líneas con producto de esta venta y registrará el reembolso. Si el reembolso cubre lo pagado, la venta pasará a estado <b>Devuelta</b>.
+        </div>
+      </Modal>
     </>
   )
 }

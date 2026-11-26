@@ -33,6 +33,7 @@ interface Data {
   nPedido: { total: number }
   nPos: { total: number }
   nBorrador: { total: number }
+  nDevuelta: { total: number }
   nAnulada: { total: number }
   receivables: { balance: number; dueDate: string | null }[]
   sites: Site[]
@@ -48,12 +49,13 @@ const Q = `query($from:String,$to:String,$pfrom:String,$pto:String,$channel:Stri
   nPedido: sales(from:$from, to:$to, channel:"pedido", siteId:$siteId, limit:1){ total }
   nPos: sales(from:$from, to:$to, channel:"pos", siteId:$siteId, limit:1){ total }
   nBorrador: sales(from:$from, to:$to, status:"borrador", siteId:$siteId, limit:1){ total }
+  nDevuelta: sales(from:$from, to:$to, status:"devuelta", siteId:$siteId, limit:1){ total }
   nAnulada: sales(from:$from, to:$to, status:"anulada", siteId:$siteId, limit:1){ total }
   receivables{ balance dueDate }
   sites{ id name }
 }`
 
-type TabKey = 'todas' | 'pedidos' | 'pos' | 'cotizaciones' | 'anuladas'
+type TabKey = 'todas' | 'pedidos' | 'pos' | 'cotizaciones' | 'devueltas' | 'anuladas'
 type StateKey = 'todos' | 'pagada' | 'parcial' | 'por_cobrar'
 
 const stateOf = (s: SaleRow): StateKey | 'otro' => {
@@ -80,7 +82,7 @@ export default function Orders() {
     pfrom: prevDates.from,
     pto: prevDates.to,
     channel: tab === 'pedidos' ? 'pedido' : tab === 'pos' ? 'pos' : null,
-    status: tab === 'cotizaciones' ? 'borrador' : tab === 'anuladas' ? 'anulada' : null,
+    status: tab === 'cotizaciones' ? 'borrador' : tab === 'devueltas' ? 'devuelta' : tab === 'anuladas' ? 'anulada' : null,
     search: q || null,
     siteId: siteId || null,
   }
@@ -136,6 +138,7 @@ export default function Orders() {
             { key: 'pedidos', label: 'Pedidos', count: data?.nPedido.total },
             { key: 'pos', label: 'Caja POS', count: data?.nPos.total },
             { key: 'cotizaciones', label: 'Cotizaciones', count: data?.nBorrador.total },
+            { key: 'devueltas', label: 'Devueltas', count: data?.nDevuelta.total },
             { key: 'anuladas', label: 'Anuladas', count: data?.nAnulada.total },
           ]}
         />

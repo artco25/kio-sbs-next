@@ -154,6 +154,8 @@ export const STATUS: Record<string, { label: string; tone: Tone }> = {
   borrador: { label: 'Borrador', tone: 'neutral' },
   confirmada: { label: 'Confirmada', tone: 'success' },
   anulada: { label: 'Anulada', tone: 'danger' },
+  devuelta: { label: 'Devuelta', tone: 'warning' },
+  devuelta_parcial: { label: 'Devuelta parcial', tone: 'warning' },
   pagada: { label: 'Pagada', tone: 'success' },
   parcial: { label: 'Pago parcial', tone: 'warning' },
   por_cobrar: { label: 'Por cobrar', tone: 'warning' },
