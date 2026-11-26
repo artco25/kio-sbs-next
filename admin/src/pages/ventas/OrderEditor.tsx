@@ -151,7 +151,7 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
   const [busy, setBusy] = useState<null | 'draft' | 'confirm' | 'void'>(null)
 
   const [partnerId, setPartnerId] = useState(initial?.partner?.id ?? '')
-  const [siteId, setSiteId] = useState(initial?.siteId ?? '')
+  const [siteId, setSiteId] = useState(() => initial?.siteId ?? sessionStorage.getItem('kio:lastSiteId') ?? '')
   const [mode, setMode] = useState<'contado' | 'credito'>(initial?.paymentMode === 'credito' ? 'credito' : 'contado')
   const [method, setMethod] = useState('efectivo')
   const [dueDate, setDueDate] = useState(initial?.dueDate?.slice(0, 10) ?? '')
@@ -166,6 +166,14 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
   const [meta, setMeta] = useState<Record<string, Meta>>({})
   const sitesQ = useGql<{ sites: { id: string; name: string; active: boolean }[] }>('{ sites{ id name active } }')
   const sites = useMemo(() => (sitesQ.data?.sites ?? []).filter((s) => s.active), [sitesQ.data])
+  const siteStocksQ = useGql<{ warehouseStocks: { productId: string; qty: number }[] }>('query($s:ID){ warehouseStocks(siteId:$s){ productId qty } }', { s: siteId || null }, { skip: !siteId })
+  const siteProductIds = useMemo(() => {
+    if (!siteId) return null
+    if (!siteStocksQ.data) return null
+    const ids = new Set<string>()
+    for (const s of siteStocksQ.data.warehouseStocks ?? []) if (toNum(s.qty) > 0 && s.productId) ids.add(s.productId)
+    return ids
+  }, [siteId, siteStocksQ.data])
 
   // Clientes
   const customers = useGql<{ partners: { items: CreditPartner[] } }>(CUSTOMERS_Q)
@@ -204,6 +212,12 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
       const days = toNum(partner?.paymentTermDays) > 0 ? toNum(partner?.paymentTermDays) : 30
       setDueDate(addDays(today(), days))
     }
+  }
+
+  function changeSite(id: string) {
+    setSiteId(id)
+    if (id) sessionStorage.setItem('kio:lastSiteId', id)
+    else sessionStorage.removeItem('kio:lastSiteId')
   }
 
   async function createCustomer() {
@@ -370,7 +384,7 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
         <div className="space-y-6 xl:col-span-2">
           <Card title="Productos" subtitle="Busca por nombre, código de barras o SKU" padded={false}>
             <div className="px-5 pt-4 pb-4">
-              <ProductSearch onPick={addProduct} />
+              <ProductSearch onPick={addProduct} allowedProductIds={siteProductIds} />
             </div>
             <LinesTable lines={lines} meta={meta} onChange={setLine} onRemove={(k) => setLines((ls) => ls.filter((l) => l.key !== k))} />
           </Card>
@@ -383,7 +397,7 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
           <Card title="Cliente y pago">
             <div className="space-y-4">
               <Field label="Sede / tienda" hint="Sede donde se atiende este pedido.">
-                <Select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+                <Select value={siteId} onChange={(e) => changeSite(e.target.value)}>
                   <option value="">Sin sede asignada</option>
                   {sites.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
@@ -484,12 +498,12 @@ function Row({ label, value }: { label: string; value: string }) {
 
 // ============================================================================ buscador de productos
 
-function ProductSearch({ onPick }: { onPick: (p: ProductHit) => void }) {
+function ProductSearch({ onPick, allowedProductIds }: { onPick: (p: ProductHit) => void; allowedProductIds?: Set<string> | null }) {
   const [text, setText] = useState('')
   const [open, setOpen] = useState(false)
   const s = useDebounced(text.trim(), 250)
   const { data, loading } = useGql<{ products: { items: ProductHit[] } }>(PRODUCTS_Q, { s: s || null }, { skip: !open })
-  const items = (data?.products.items ?? []).filter((p) => p.active !== false)
+  const items = (data?.products.items ?? []).filter((p) => p.active !== false && (!allowedProductIds || allowedProductIds.has(p.id)))
 
   function pick(p: ProductHit) {
     onPick(p)
