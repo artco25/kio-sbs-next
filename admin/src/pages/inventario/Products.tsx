@@ -7,7 +7,7 @@ import { RecordForm, type FieldDef } from '../../components/RecordForm'
 import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, FilterSelect, IconButton, IconTile, Modal, NameCell, PageHeader, SearchInput, StatusBadge, Toolbar, type Column } from '../../components/ui'
 import { useAuth } from '../../lib/auth'
 import { date, money, pct, qty } from '../../lib/format'
-import { exportCsv, saveRecords, uuid, type Row } from '../../lib/records'
+import { exportCsv, saveRecord, saveRecords, today, uuid, type Row } from '../../lib/records'
 import { useGql } from '../../lib/useGql'
 import {
   CategoryBadge,
@@ -96,6 +96,7 @@ export default function Products() {
   const setCat = (v: string) => setParams(v ? { categoria: v } : {}, { replace: true })
 
   const [form, setForm] = useState<{ open: boolean; initial: Row | null }>({ open: false, initial: null })
+  const initialStockRef = useRef<{ warehouse_id: string; qty: number } | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [adjust, setAdjust] = useState<{ mode: StockMode; product: Prod } | null>(null)
   const [importing, setImporting] = useState(false)
@@ -124,6 +125,7 @@ export default function Products() {
     })
   }, [items, q, cat, status])
 
+  const whOptionsForCreate = (data?.warehouses ?? []).filter((w) => w.active).map((w) => ({ value: w.id, label: w.name ?? w.id }))
   const fields: FieldDef[] = [
     { key: 'name', label: 'Nombre', required: true, full: true, placeholder: 'Ej. Aceite de girasol 1 L' },
     { key: 'sku', label: 'Referencia (SKU)' },
@@ -144,6 +146,10 @@ export default function Products() {
     { key: 'track_stock', label: 'Controla inventario', type: 'boolean', defaultValue: 1 },
     { key: 'available_pos', label: 'Disponible en POS', type: 'boolean', defaultValue: 1 },
     { key: 'active', label: 'Activo', type: 'boolean', defaultValue: 1 },
+    ...(!form.initial ? [
+      { key: 'initial_warehouse_id', label: 'Bodega inicial', type: 'select' as const, options: [{ value: '', label: 'Sin asignar ahora' }, ...whOptionsForCreate], hint: 'Opcional: asigna el producto a una bodega al crearlo.' },
+      { key: 'initial_qty', label: 'Existencia inicial en bodega', type: 'number' as const, defaultValue: 0, hint: 'Si indicas bodega, se crea la existencia inicial.' },
+    ] : []),
   ]
 
   const columns: Column<Prod>[] = [
@@ -360,9 +366,24 @@ export default function Products() {
         fields={fields}
         initial={form.initial}
         validate={(v) => {
+          initialStockRef.current = v.initial_warehouse_id ? { warehouse_id: String(v.initial_warehouse_id), qty: Number(v.initial_qty || 0) } : null
+          delete v.initial_warehouse_id
+          delete v.initial_qty
           v.tax_rate = Number(v.tax_rate)
           if (Number(v.price) < 0 || Number(v.cost) < 0 || Number(v.min_stock) < 0) return 'Precio, costo y stock mínimo no pueden ser negativos.'
           return null
+        }}
+        onSaved={async (id, _merged) => {
+          const init = initialStockRef.current
+          initialStockRef.current = null
+          if (!init?.warehouse_id || form.initial) return
+          try {
+            const wh = (data?.warehouses ?? []).find((w) => w.id === init.warehouse_id)
+            await saveRecord('warehouse_stocks', { product_id: id, warehouse_id: init.warehouse_id, site_id: wh?.siteId ?? null, qty: init.qty, min_qty: Number(_merged.min_stock || 0), active: 1 })
+            if (init.qty > 0) {
+              await saveRecord('stock_moves', { product_id: id, warehouse_id: init.warehouse_id, qty: init.qty, kind: 'ajuste', date: today(), unit_cost: Number(_merged.cost || 0), notes: 'Existencia inicial al crear producto' })
+            }
+          } catch { /* no bloquear creación del producto */ }
         }}
       />
 

@@ -1,4 +1,4 @@
-import { ClipboardCheck, PackageMinus, PackagePlus } from 'lucide-react'
+import { ArrowRightLeft, ClipboardCheck, PackageMinus, PackagePlus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Badge, Button, Field, Input, Modal, Select, Tabs, Textarea, useFeedback, type Tone } from '../../components/ui'
 import { money, qty, toNum } from '../../lib/format'
@@ -169,7 +169,7 @@ export function useCategoryOptions(cats: { id: string; name: string | null }[] |
 
 // ============================================================================ movimientos de inventario
 
-export type StockMode = 'entrada' | 'salida' | 'conteo'
+export type StockMode = 'entrada' | 'salida' | 'conteo' | 'traslado'
 
 const parseNum = (v: string) => Number(v.trim().replace(',', '.'))
 
@@ -184,6 +184,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
   const [mode, setMode] = useState<StockMode>(initialMode)
   const [productId, setProductId] = useState('')
   const [warehouseId, setWarehouseId] = useState('')
+  const [warehouseToId, setWarehouseToId] = useState('')
   const [amount, setAmount] = useState('')
   const [cost, setCost] = useState('')
   const [note, setNote] = useState('')
@@ -209,6 +210,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
     setMode(initialMode)
     setProductId(product?.id ?? '')
     setWarehouseId(warehouses[0]?.id ?? '')
+    setWarehouseToId(warehouses[1]?.id ?? warehouses[0]?.id ?? '')
     setAmount('')
     setCost(product ? String(product.cost) : '')
     setNote('')
@@ -237,7 +239,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
 
   async function submit() {
     if (!selected) return setError('Selecciona un producto.')
-    if (!warehouseId) return setError('Selecciona la bodega.')
+    if (!warehouseId) return setError('Selecciona la bodega origen.')
     if (!Number.isFinite(n)) return setError('Escribe una cantidad válida.')
     let delta = 0
     let kind = 'ajuste'
@@ -252,9 +254,16 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
       unitCost = c
     } else if (mode === 'salida') {
       if (n <= 0) return setError('La cantidad debe ser mayor que cero.')
-      if (n > current) return setError(`La salida supera la existencia actual (${qty(current)}).`)
+      if (n > current) return setError(`La salida supera la existencia actual en bodega (${qty(current)}).`)
       if (!notes) return setError('Indica el motivo de la salida.')
       delta = -n
+    } else if (mode === 'traslado') {
+      if (!warehouseToId) return setError('Selecciona la bodega destino.')
+      if (warehouseToId === warehouseId) return setError('La bodega destino debe ser diferente al origen.')
+      if (n <= 0) return setError('La cantidad debe ser mayor que cero.')
+      if (n > current) return setError(`El traslado supera la existencia actual en bodega origen (${qty(current)}).`)
+      delta = -n
+      kind = 'traslado'
     } else {
       if (n < 0) return setError('La cantidad contada no puede ser negativa.')
       delta = Math.round((n - current) * 1000) / 1000
@@ -267,8 +276,15 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
     }
     setSaving(true)
     try {
-      await saveRecord('stock_moves', { product_id: selected.id, warehouse_id: warehouseId, qty: delta, kind, date: today(), unit_cost: unitCost, notes })
-      toast(`Inventario actualizado: ${selected.name} ${delta > 0 ? '+' : ''}${qty(delta)} ${unitLabel(selected.unit)}`)
+      if (mode === 'traslado') {
+        const ref = crypto.randomUUID()
+        await saveRecord('stock_moves', { product_id: selected.id, warehouse_id: warehouseId, warehouse_to_id: warehouseToId, qty: -n, kind: 'traslado_salida', ref_id: ref, date: today(), unit_cost: unitCost, notes: notes || `Traslado a ${warehouses.find(w=>w.id===warehouseToId)?.name ?? 'bodega'}` })
+        await saveRecord('stock_moves', { product_id: selected.id, warehouse_id: warehouseToId, warehouse_to_id: warehouseId, qty: n, kind: 'traslado_entrada', ref_id: ref, date: today(), unit_cost: unitCost, notes: notes || `Traslado desde ${warehouses.find(w=>w.id===warehouseId)?.name ?? 'bodega'}` })
+        toast(`Traslado registrado: ${selected.name} ${qty(n)} ${unitLabel(selected.unit)}`)
+      } else {
+        await saveRecord('stock_moves', { product_id: selected.id, warehouse_id: warehouseId, qty: delta, kind, date: today(), unit_cost: unitCost, notes })
+        toast(`Inventario actualizado: ${selected.name} ${delta > 0 ? '+' : ''}${qty(delta)} ${unitLabel(selected.unit)}`)
+      }
       onDone?.()
       onClose()
     } catch (e) {
@@ -278,11 +294,12 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
     }
   }
 
-  const TITLE: Record<StockMode, string> = { entrada: 'Registrar entrada', salida: 'Registrar salida', conteo: 'Conteo físico' }
+  const TITLE: Record<StockMode, string> = { entrada: 'Registrar entrada', salida: 'Registrar salida', conteo: 'Conteo físico', traslado: 'Trasladar entre bodegas' }
   const SUB: Record<StockMode, string> = {
     entrada: 'Suma unidades al inventario (compra o recepción de mercancía).',
     salida: 'Descuenta unidades por merma, daño, consumo interno u otro motivo.',
     conteo: 'Escribe lo que contaste: se registra el ajuste por la diferencia.',
+    traslado: 'Mueve unidades de una bodega origen a una bodega destino.',
   }
 
   return (
@@ -297,7 +314,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button loading={saving} icon={mode === 'entrada' ? PackagePlus : mode === 'salida' ? PackageMinus : ClipboardCheck} onClick={submit}>
+          <Button loading={saving} icon={mode === 'entrada' ? PackagePlus : mode === 'salida' ? PackageMinus : mode === 'traslado' ? ArrowRightLeft : ClipboardCheck} onClick={submit}>
             {mode === 'conteo' ? 'Registrar conteo' : TITLE[mode]}
           </Button>
         </>
@@ -313,6 +330,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
           tabs={[
             { key: 'entrada', label: 'Entrada', icon: PackagePlus },
             { key: 'salida', label: 'Salida', icon: PackageMinus },
+            { key: 'traslado', label: 'Traslado', icon: ArrowRightLeft },
             { key: 'conteo', label: 'Conteo', icon: ClipboardCheck },
           ]}
         />
@@ -329,7 +347,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
             ))}
           </Select>
         </Field>
-        <Field label="Bodega" required className="sm:col-span-2" hint={warehouses.length === 0 ? 'No hay bodegas configuradas.' : 'Bodega donde aplica el movimiento'}>
+        <Field label={mode === 'traslado' ? 'Bodega origen' : 'Bodega'} required className={mode === 'traslado' ? '' : 'sm:col-span-2'} hint={warehouses.length === 0 ? 'No hay bodegas configuradas.' : mode === 'traslado' ? 'De dónde sale' : 'Bodega donde aplica el movimiento'}>
           <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
             <option value="">Selecciona bodega…</option>
             {warehouses.map((w) => (
@@ -337,6 +355,16 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
             ))}
           </Select>
         </Field>
+        {mode === 'traslado' && (
+          <Field label="Bodega destino" required hint="A dónde llega">
+            <Select value={warehouseToId} onChange={(e) => setWarehouseToId(e.target.value)}>
+              <option value="">Selecciona bodega…</option>
+              {warehouses.filter((w) => w.id !== warehouseId).map((w) => (
+                <option key={w.id} value={w.id}>{w.name ?? w.id}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label={mode === 'conteo' ? 'Cantidad contada' : 'Cantidad'} required hint={selected ? `Existencia actual${warehouseId ? ' en bodega' : ''}: ${qty(current)} ${unitLabel(selected.unit)}` : undefined}>
           <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus />
         </Field>
@@ -357,14 +385,15 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
         </Field>
       </div>
       {preview && selected && (
-        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl bg-brand-50 px-4 py-3 text-sm text-ink-soft">
+        <div className={`mt-4 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3 text-sm ${(mode === 'salida' || mode === 'traslado') && preview.after < 0 ? 'bg-danger/10 text-danger' : 'bg-brand-50 text-ink-soft'}`}>
           Movimiento:
           <SignedQty value={preview.delta} unit={selected.unit} />
           <span className="text-muted">·</span>
-          Nueva existencia:
-          <span className="font-semibold text-ink">
+          {mode === 'traslado' ? 'Existencia origen después:' : 'Nueva existencia:'}
+          <span className={`font-semibold ${(mode === 'salida' || mode === 'traslado') && preview.after < 0 ? 'text-danger' : 'text-ink'}`}>
             {qty(preview.after)} {unitLabel(selected.unit)}
           </span>
+          {(mode === 'salida' || mode === 'traslado') && preview.after < 0 && <span className="font-medium">— supera la existencia disponible</span>}
         </div>
       )}
       {error && <p className="mt-3 text-sm font-medium text-danger">{error}</p>}

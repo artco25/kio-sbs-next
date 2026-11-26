@@ -18,6 +18,7 @@ import {
   ShoppingBag,
   Store,
   Tags,
+  Truck,
   UserRound,
   Users,
   Wallet,
@@ -63,6 +64,7 @@ export const MODULES: Module[] = [
   { path: '/inventario/productos', label: 'Productos', icon: Package, suites: ['comercial', 'pos', 'inventario'], page: lazy(() => import('./pages/inventario/Products')), visible: (a) => a.can('products') },
   { path: '/inventario/categorias', label: 'Categorías', icon: Tags, suites: ['comercial', 'pos', 'inventario'], page: lazy(() => import('./pages/inventario/Categories')), visible: (a) => a.can('categories') },
   { path: '/inventario/existencias', label: 'Existencias y movimientos', icon: ArrowRightLeft, suites: ['comercial', 'inventario'], page: lazy(() => import('./pages/inventario/Stock')), visible: (a) => a.can('stock_moves') },
+  { path: '/inventario/requisiciones', label: 'Requisiciones', icon: Truck, suites: ['inventario'], page: lazy(() => import('./pages/inventario/Requisitions')), visible: (a) => a.can('requisitions') },
 
   // Punto de venta
   { path: '/ventas/cajas', label: 'Cajas y sesiones', icon: Store, suites: ['pos'], page: lazy(() => import('./pages/ventas/PosSessions')), visible: (a) => a.can('pos_sessions') },

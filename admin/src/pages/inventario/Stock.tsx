@@ -187,6 +187,9 @@ export default function Stock() {
                 <Button variant="secondary" icon={ClipboardCheck} onClick={() => setModal({ mode: 'conteo', product: null })}>
                   Conteo físico
                 </Button>
+                <Button variant="secondary" icon={ArrowRightLeft} onClick={() => setModal({ mode: 'traslado', product: null })}>
+                  Trasladar
+                </Button>
                 <Button variant="secondary" icon={PackageMinus} onClick={() => setModal({ mode: 'salida', product: null })}>
                   Registrar salida
                 </Button>
