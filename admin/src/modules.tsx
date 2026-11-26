@@ -42,7 +42,7 @@ export interface Module {
   children?: { path: string; page: LazyExoticComponent<ComponentType> }[]
 }
 
-const ALL: SuiteKey[] = ['comercial', 'pos', 'financiero', 'personal', 'sistema']
+const ALL: SuiteKey[] = ['comercial', 'pos', 'inventario', 'financiero', 'personal', 'sistema']
 
 /** Módulos del admin de KIO SBS agrupados por suite. */
 export const MODULES: Module[] = [
@@ -60,9 +60,9 @@ export const MODULES: Module[] = [
   },
   { path: '/ventas/clientes', label: 'Clientes y proveedores', icon: UserRound, suites: ['comercial'], page: lazy(() => import('./pages/ventas/Partners')), visible: (a) => a.can('partners') },
   { path: '/ventas/cartera', label: 'Cartera', icon: HandCoins, suites: ['comercial', 'financiero'], page: lazy(() => import('./pages/ventas/Receivables')), visible: (a) => a.can('sales') },
-  { path: '/inventario/productos', label: 'Productos', icon: Package, suites: ['comercial', 'pos'], page: lazy(() => import('./pages/inventario/Products')), visible: (a) => a.can('products') },
-  { path: '/inventario/categorias', label: 'Categorías', icon: Tags, suites: ['comercial', 'pos'], page: lazy(() => import('./pages/inventario/Categories')), visible: (a) => a.can('categories') },
-  { path: '/inventario/existencias', label: 'Existencias y movimientos', icon: ArrowRightLeft, suites: ['comercial'], page: lazy(() => import('./pages/inventario/Stock')), visible: (a) => a.can('stock_moves') },
+  { path: '/inventario/productos', label: 'Productos', icon: Package, suites: ['comercial', 'pos', 'inventario'], page: lazy(() => import('./pages/inventario/Products')), visible: (a) => a.can('products') },
+  { path: '/inventario/categorias', label: 'Categorías', icon: Tags, suites: ['comercial', 'pos', 'inventario'], page: lazy(() => import('./pages/inventario/Categories')), visible: (a) => a.can('categories') },
+  { path: '/inventario/existencias', label: 'Existencias y movimientos', icon: ArrowRightLeft, suites: ['comercial', 'inventario'], page: lazy(() => import('./pages/inventario/Stock')), visible: (a) => a.can('stock_moves') },
 
   // Punto de venta
   { path: '/ventas/cajas', label: 'Cajas y sesiones', icon: Store, suites: ['pos'], page: lazy(() => import('./pages/ventas/PosSessions')), visible: (a) => a.can('pos_sessions') },
@@ -81,7 +81,7 @@ export const MODULES: Module[] = [
   // Sistema
   { path: '/sistema/plataforma', label: 'Plataforma', icon: Crown, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Platform')), visible: (a) => a.isPlatform },
   { path: '/sistema/sedes', label: 'Sedes', icon: MapPin, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Sites')), visible: (a) => a.isAdmin },
-  { path: '/sistema/bodegas', label: 'Bodegas', icon: Warehouse, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Warehouses')), visible: (a) => a.isAdmin },
+  { path: '/sistema/bodegas', label: 'Bodegas', icon: Warehouse, suites: ['sistema', 'inventario'], page: lazy(() => import('./pages/sistema/Warehouses')), visible: (a) => a.isAdmin },
   { path: '/sistema/usuarios', label: 'Usuarios', icon: Users, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Users')), visible: (a) => a.isAdmin },
   { path: '/sistema/roles', label: 'Roles y permisos', icon: ShieldCheck, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Roles')), visible: (a) => a.isAdmin },
   { path: '/sistema/dispositivos', label: 'Cajas y dispositivos', icon: MonitorSmartphone, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Devices')), visible: (a) => a.isAdmin },

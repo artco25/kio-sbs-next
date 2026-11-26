@@ -1,12 +1,13 @@
-import { IdCard, Landmark, Settings, ShoppingBag, Store, type LucideIcon } from 'lucide-react'
+import { Boxes, IdCard, Landmark, Settings, ShoppingBag, Store, type LucideIcon } from 'lucide-react'
 import type { Tone } from '../components/ui'
 
-export type SuiteKey = 'comercial' | 'pos' | 'financiero' | 'personal' | 'sistema'
+export type SuiteKey = 'comercial' | 'pos' | 'inventario' | 'financiero' | 'personal' | 'sistema'
 
 /** Suites de KIO SBS: el usuario entra a una suite y ve sólo sus módulos. */
 export const SUITES: { key: SuiteKey; label: string; description: string; icon: LucideIcon; tone: Tone }[] = [
-  { key: 'comercial', label: 'Comercial', description: 'Ventas, clientes, cartera, productos e inventario', icon: ShoppingBag, tone: 'brand' },
+  { key: 'comercial', label: 'Comercial', description: 'Ventas, clientes, cartera y pedidos', icon: ShoppingBag, tone: 'brand' },
   { key: 'pos', label: 'Punto de venta', description: 'Cajas, sesiones, arqueos y pedidos de cocina', icon: Store, tone: 'warning' },
+  { key: 'inventario', label: 'Inventario', description: 'Productos, categorías, bodegas y existencias', icon: Boxes, tone: 'success' },
   { key: 'financiero', label: 'Financiero', description: 'Recibos de caja, caja menor, cartera e informes', icon: Landmark, tone: 'info' },
   { key: 'personal', label: 'Personal y nómina', description: 'Empleados, novedades, vacaciones y liquidación', icon: IdCard, tone: 'success' },
   { key: 'sistema', label: 'Sistema', description: 'Usuarios, roles y permisos, equipos y empresa', icon: Settings, tone: 'neutral' },

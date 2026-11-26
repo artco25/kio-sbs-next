@@ -1,12 +1,13 @@
-import { Download, ListFilter, Package, Pencil, Percent, Plus, SlidersHorizontal, Tags, TriangleAlert, Warehouse } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Download, FileSpreadsheet, ListFilter, Package, Pencil, Percent, Plus, SlidersHorizontal, Tags, TriangleAlert, Upload, Warehouse } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import * as XLSX from 'xlsx'
 import { KpiCard } from '../../components/charts'
 import { RecordForm, type FieldDef } from '../../components/RecordForm'
 import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, FilterSelect, IconButton, IconTile, Modal, NameCell, PageHeader, SearchInput, StatusBadge, Toolbar, type Column } from '../../components/ui'
 import { useAuth } from '../../lib/auth'
 import { date, money, pct, qty } from '../../lib/format'
-import { exportCsv, type Row } from '../../lib/records'
+import { exportCsv, saveRecords, uuid, type Row } from '../../lib/records'
 import { useGql } from '../../lib/useGql'
 import {
   CategoryBadge,
@@ -97,6 +98,9 @@ export default function Products() {
   const [form, setForm] = useState<{ open: boolean; initial: Row | null }>({ open: false, initial: null })
   const [detailId, setDetailId] = useState<string | null>(null)
   const [adjust, setAdjust] = useState<{ mode: StockMode; product: Prod } | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const items = data?.products.items ?? []
   const cats = data?.categories ?? []
@@ -158,6 +162,7 @@ export default function Products() {
       render: (p) => (
         <div className="flex justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
           {canStock && p.trackStock && <IconButton icon={SlidersHorizontal} label="Ajustar stock" onClick={() => setAdjust({ mode: 'entrada', product: p })} />}
+          <IconButton icon={Warehouse} label="Bodegas / existencias" onClick={() => setDetailId(p.id)} />
           {canWrite && <IconButton icon={Pencil} label="Editar" onClick={() => setForm({ open: true, initial: toRow(p) })} />}
         </div>
       ),
@@ -199,6 +204,85 @@ export default function Products() {
       ],
     )
 
+  const downloadTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([
+      {
+        nombre: 'Aceite de girasol 1 L',
+        sku: 'ACE-001',
+        codigo_barras: '7701234567890',
+        categoria: 'Despensa',
+        unidad: 'unidad',
+        precio_sin_iva: 12000,
+        costo: 8500,
+        iva: 0.19,
+        stock_minimo: 5,
+        controla_inventario: 'SI',
+        disponible_pos: 'SI',
+        activo: 'SI',
+      },
+    ], { header: ['nombre', 'sku', 'codigo_barras', 'categoria', 'unidad', 'precio_sin_iva', 'costo', 'iva', 'stock_minimo', 'controla_inventario', 'disponible_pos', 'activo'] })
+    ws['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 10 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Productos')
+    XLSX.writeFile(wb, 'plantilla-productos-kio.xlsx')
+  }
+
+  const onImportFile = async (file: File) => {
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })
+      if (!raw.length) throw new Error('El archivo no tiene filas.')
+      const catByName = new Map(cats.map((c) => [(c.name ?? '').trim().toLowerCase(), c.id]))
+      const bySku = new Map(items.filter((p) => p.sku).map((p) => [String(p.sku).trim().toLowerCase(), p.id]))
+      const byBarcode = new Map(items.filter((p) => p.barcode).map((p) => [String(p.barcode).trim(), p.id]))
+      const bool = (v: unknown) => {
+        const s = String(v ?? '').trim().toLowerCase()
+        return s === 'si' || s === 'sí' || s === '1' || s === 'true' || s === 'x' ? 1 : 0
+      }
+      const num = (v: unknown) => {
+        const n = Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.'))
+        return Number.isFinite(n) ? n : 0
+      }
+      const changes = raw.map((r) => {
+        const name = String(r.nombre ?? r.name ?? '').trim()
+        if (!name) return null
+        const catName = String(r.categoria ?? r.category ?? '').trim().toLowerCase()
+        const sku = String(r.sku ?? '').trim() || null
+        const barcode = String(r.codigo_barras ?? r.barcode ?? '').trim() || null
+        const existingId = String(r.id ?? '').trim() || (sku ? bySku.get(sku.toLowerCase()) : undefined) || (barcode ? byBarcode.get(barcode) : undefined)
+        const row: Row = {
+          id: existingId || uuid(),
+          name,
+          sku,
+          barcode,
+          category_id: catByName.get(catName) ?? '',
+          unit: String(r.unidad ?? r.unit ?? 'unidad').trim() || 'unidad',
+          price: num(r.precio_sin_iva ?? r.price),
+          cost: num(r.costo ?? r.cost),
+          tax_rate: num(r.iva ?? r.tax_rate ?? 0.19),
+          min_stock: num(r.stock_minimo ?? r.min_stock),
+          track_stock: bool(r.controla_inventario ?? r.track_stock ?? 1),
+          available_pos: bool(r.disponible_pos ?? r.available_pos ?? 1),
+          active: bool(r.activo ?? r.active ?? 1),
+        }
+        return { table: 'products', row }
+      }).filter(Boolean) as { table: string; row: Row }[]
+      if (!changes.length) throw new Error('No se encontraron productos válidos (columna "nombre").')
+      await saveRecords(changes)
+      setImportMsg({ ok: true, text: `Se importaron ${changes.length} producto(s) correctamente.` })
+      window.dispatchEvent(new Event('kio:invalidate'))
+    } catch (e: any) {
+      setImportMsg({ ok: false, text: e?.message || 'Error importando archivo.' })
+    } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   const detail = items.find((p) => p.id === detailId) ?? null
   const hasFilters = !!(q || cat || status !== 'todos')
 
@@ -209,6 +293,14 @@ export default function Products() {
         subtitle="Catálogo, precios, márgenes y existencias de todo lo que vendes."
         actions={
           <>
+            <Button variant="secondary" icon={FileSpreadsheet} onClick={downloadTemplate}>
+              Plantilla Excel
+            </Button>
+            {canWrite && (
+              <Button variant="secondary" icon={Upload} onClick={() => fileRef.current?.click()} disabled={importing}>
+                {importing ? 'Importando…' : 'Importar Excel'}
+              </Button>
+            )}
             <Button variant="secondary" icon={Download} onClick={exportRows} disabled={rows.length === 0}>
               Exportar CSV
             </Button>
@@ -220,6 +312,12 @@ export default function Products() {
           </>
         }
       />
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void onImportFile(f) }} />
+      {importMsg && (
+        <div className={`mb-4 rounded-xl border px-4 py-3 text-sm ${importMsg.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+          {importMsg.text}
+        </div>
+      )}
       <ErrorBox error={error} />
 
       <div className="space-y-6">
