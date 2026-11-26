@@ -159,6 +159,7 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
   const [newCust, setNewCust] = useState(false)
   const [nc, setNc] = useState({ name: '', doc_number: '', phone: '', email: '' })
   const [savingNc, setSavingNc] = useState(false)
+  const [extraCustomers, setExtraCustomers] = useState<CreditPartner[]>([])
   const [lines, setLines] = useState<EditLine[]>(() =>
     (initial?.lines ?? []).map((l) => ({ key: l.id, productId: l.productId, name: l.name, qty: String(l.qty), price: String(l.price), discount: String(l.discountPct || 0), taxRate: toNum(l.taxRate) })),
   )
@@ -170,9 +171,11 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
   const customers = useGql<{ partners: { items: CreditPartner[] } }>(CUSTOMERS_Q)
   const customerList = useMemo(() => {
     const items = customers.data?.partners.items ?? []
-    if (initial?.partner && !items.some((p) => p.id === initial.partner!.id)) return [initial.partner, ...items]
-    return items
-  }, [customers.data, initial])
+    const merged = [...items]
+    if (initial?.partner && !merged.some((p) => p.id === initial.partner!.id)) merged.unshift(initial.partner)
+    for (const c of extraCustomers) if (!merged.some((p) => p.id === c.id)) merged.unshift(c)
+    return merged
+  }, [customers.data, initial, extraCustomers])
   const partner = customerList.find((p) => p.id === partnerId) ?? null
 
   // Info de inventario de las líneas de un borrador existente
@@ -208,12 +211,15 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
     setSavingNc(true)
     try {
       const id = uuid()
-      await saveRecord('partners', { id, name: nc.name.trim(), doc_number: nc.doc_number.trim() || null, phone: nc.phone.trim() || null, email: nc.email.trim() || null, kind: 'cliente', active: 1 })
+      const name = nc.name.trim()
+      const doc_number = nc.doc_number.trim() || null
+      await saveRecord('partners', { id, name, doc_number, phone: nc.phone.trim() || null, email: nc.email.trim() || null, kind: 'cliente', active: 1 })
+      setExtraCustomers((xs) => [{ id, name, docNumber: doc_number, creditLimit: 0, paymentTermDays: 0, blocked: false, balance: 0, overdue: 0, availableCredit: null }, ...xs])
+      setPartnerId(id)
       toast('Cliente creado')
       setNewCust(false)
       setNc({ name: '', doc_number: '', phone: '', email: '' })
-      await customers.reload()
-      setPartnerId(id)
+      void customers.reload()
     } catch (e) {
       toast((e as Error).message, 'error')
     } finally {
