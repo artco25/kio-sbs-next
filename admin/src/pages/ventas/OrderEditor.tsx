@@ -166,7 +166,10 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
   const [meta, setMeta] = useState<Record<string, Meta>>({})
   const sitesQ = useGql<{ sites: { id: string; name: string; active: boolean }[] }>('{ sites{ id name active } }')
   const sites = useMemo(() => (sitesQ.data?.sites ?? []).filter((s) => s.active), [sitesQ.data])
-  const siteStocksQ = useGql<{ warehouseStocks: { productId: string; qty: number }[] }>('query($s:ID){ warehouseStocks(siteId:$s){ productId qty } }', { s: siteId || null }, { skip: !siteId })
+  const whsQ = useGql<{ warehouses: { id: string; name: string | null; siteId: string | null; isDefault: boolean; active: boolean }[] }>('{ warehouses{ id name siteId isDefault active } }')
+  const siteWarehouses = useMemo(() => (whsQ.data?.warehouses ?? []).filter((w) => w.active && (!siteId || w.siteId === siteId)), [whsQ.data, siteId])
+  const siteDefaultWh = useMemo(() => siteWarehouses.find((w) => w.isDefault) ?? siteWarehouses[0] ?? null, [siteWarehouses])
+  const siteStocksQ = useGql<{ warehouseStocks: { productId: string; qty: number; warehouseId: string }[] }>('query($s:ID){ warehouseStocks(siteId:$s){ productId qty warehouseId } }', { s: siteId || null }, { skip: !siteId })
   const siteProductIds = useMemo(() => {
     if (!siteId) return null
     if (!siteStocksQ.data) return null
@@ -312,7 +315,10 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
         row: { id: uuid(), sale_id: saleId, product_id: l.productId, name: l.name.trim(), qty: num(l.qty), price: num(l.price), discount_pct: num(l.discount), tax_rate: l.taxRate, subtotal: c.subtotal, tax: c.tax, total: c.total, sequence: i + 1 },
       })
       if (confirm && l.productId && meta[l.productId]?.trackStock) {
-        changes.push({ table: 'stock_moves', row: { id: uuid(), product_id: l.productId, qty: -num(l.qty), kind: 'venta', ref_id: saleId, date: today() } })
+        const qtyNeed = num(l.qty)
+        const stocks = (siteStocksQ.data?.warehouseStocks ?? []).filter((s) => s.productId === l.productId && toNum(s.qty) > 0)
+        const whId = stocks.find((s) => s.warehouseId === siteDefaultWh?.id)?.warehouseId ?? stocks[0]?.warehouseId ?? siteDefaultWh?.id ?? null
+        changes.push({ table: 'stock_moves', row: { id: uuid(), product_id: l.productId, qty: -qtyNeed, kind: 'venta', ref_id: saleId, date: today(), warehouse_id: whId, site_id: siteId || null } })
       }
     })
     if (confirm && mode === 'contado' && totals.total > 0) {
@@ -631,6 +637,7 @@ function Viewer({ sale }: { sale: SaleDoc }) {
   const { me, can, isFinance } = useAuth()
   const { toast, confirm } = useFeedback()
   const [payOpen, setPayOpen] = useState(false)
+  const [payDetail, setPayDetail] = useState<SaleDoc['payments'][number] | null>(null)
   const [voiding, setVoiding] = useState(false)
   const [returnOpen, setReturnOpen] = useState(false)
   const [returning, setReturning] = useState(false)
@@ -870,10 +877,11 @@ function Viewer({ sale }: { sale: SaleDoc }) {
               <DataTable<SaleDoc['payments'][number]>
                 pageSize={50}
                 rows={sale.payments}
+                onRowClick={setPayDetail}
                 columns={[
                   { key: 'number', header: 'Recibo', render: (p) => <span className="font-semibold text-brand-700">{p.number}</span> },
                   { key: 'method', header: 'Medio', render: (p) => <span className="text-ink-soft">{METHOD_LABEL[p.method] ?? p.method}</span> },
-                  { key: 'amount', header: 'Valor', align: 'right', render: (p) => <span className="font-semibold">{money(p.amount)}</span> },
+                  { key: 'amount', header: 'Valor', align: 'right', render: (p) => <span className={p.amount < 0 ? 'font-semibold text-danger' : 'font-semibold'}>{money(p.amount)}</span> },
                 ]}
                 empty={<p className="px-5 pb-6 text-center text-sm text-muted">Aún no hay pagos registrados.</p>}
               />
@@ -883,6 +891,17 @@ function Viewer({ sale }: { sale: SaleDoc }) {
       </div>
 
       <PayModal open={payOpen} onClose={() => setPayOpen(false)} sale={sale} balance={balance} userId={me!.user.id} />
+      <Modal open={!!payDetail} onClose={() => setPayDetail(null)} title={`Recibo ${payDetail?.number ?? ''}`} subtitle={payDetail ? dateTime(payDetail.date) : undefined} size="sm" footer={<Button variant="secondary" onClick={() => setPayDetail(null)}>Cerrar</Button>}>
+        {payDetail && (
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between gap-4"><span className="text-muted">Valor</span><span className={payDetail.amount < 0 ? 'font-bold text-danger' : 'font-bold'}>{money(payDetail.amount)}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-muted">Tipo</span><span>{payDetail.kind === 'abono' ? 'Abono a cartera' : payDetail.kind === 'reembolso' ? 'Reembolso' : payDetail.kind === 'venta' ? 'Venta de contado' : payDetail.kind}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-muted">Medio</span><span>{METHOD_LABEL[payDetail.method] ?? payDetail.method ?? '—'}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-muted">Referencia</span><span>{payDetail.reference || '—'}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-muted">Fecha</span><span>{dateTime(payDetail.date)}</span></div>
+          </div>
+        )}
+      </Modal>
       <Modal open={returnOpen} onClose={() => setReturnOpen(false)} title="Registrar devolución" subtitle={`${sale.number} · Pagado ${money(sale.paid)}`} size="xl"
         footer={<><Button variant="ghost" onClick={() => setReturnOpen(false)}>Cancelar</Button><Button icon={RotateCcw} loading={returning} onClick={submitReturn}>Confirmar devolución</Button></>}>
         <div className="space-y-4">
