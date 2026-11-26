@@ -184,12 +184,15 @@ Regla “solo lo suyo”: por defecto filtrar por `seller_id/created_by/assignee
 - Requisiciones, OC, recepción, CxP.
 - Portal proveedor web con acceso restringido.
 
-## 11) Decisiones pendientes (confirmar)
+## 11) Decisiones
 
-1. **Sede por defecto**: ¿todo dato operativo debe tener `site_id` obligatorio? (recomendado sí, con sede default en migración).
-2. **Stock por bodega**: ¿una sede puede tener varias bodegas? (recomendado sí).
-3. **Traslado**: ¿requiere recepción en destino para afectar stock, o afecta al despachar? (recomendado recepción en destino; tránsito intermedio).
-4. **Modelo por sede vs empresa**: ¿la empresa habilita varios tipos y cada sede elige uno, o una sede también puede ser mixta? (recomendado sede `mixed` permitida).
+### Confirmadas
+1. **Sede por defecto**: todo dato operativo debe tener `site_id` obligatorio, con sede/bodega default en migración. ✅
+2. **Stock por bodega**: una sede puede tener varias bodegas. ✅
+3. **Traslado**: afecta stock al recibir en destino; tránsito intermedio opcional. ✅
+4. **Modelo por sede vs empresa**: la empresa habilita varios tipos y cada sede elige uno; se permite sede `mixed`. ✅
+
+### Pendientes
 5. **ABC**: ¿cálculo automático por período (30/60/90 días) o configurable? (recomendado configurable).
 6. **Portal proveedores**: ¿MVP solo requisiciones/cotizaciones o también OC/facturas/pagos?
 7. **Servicios en inventario**: ¿ABC/rotación de servicios por ingresos/frecuencia, separado de stock físico? (recomendado sí).
