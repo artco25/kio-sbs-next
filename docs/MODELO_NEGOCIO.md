@@ -186,17 +186,21 @@ Regla “solo lo suyo”: por defecto filtrar por `seller_id/created_by/assignee
 
 ## 11) Decisiones
 
-### Confirmadas
+### Confirmadas (con fase de implementación)
+
+**Fase 1 (fundaciones)**
 1. **Sede por defecto**: todo dato operativo debe tener `site_id` obligatorio, con sede/bodega default en migración. ✅
 2. **Stock por bodega**: una sede puede tener varias bodegas. ✅
 3. **Traslado**: afecta stock al recibir en destino; tránsito intermedio opcional. ✅
 4. **Modelo por sede vs empresa**: la empresa habilita varios tipos y cada sede elige uno; se permite sede `mixed`. ✅
 
-### Pendientes
-5. **ABC**: ¿cálculo automático por período (30/60/90 días) o configurable? (recomendado configurable).
-6. **Portal proveedores**: ¿MVP solo requisiciones/cotizaciones o también OC/facturas/pagos?
-7. **Servicios en inventario**: ¿ABC/rotación de servicios por ingresos/frecuencia, separado de stock físico? (recomendado sí).
-8. **Permisos**: vendedor solo sus pedidos; ¿admin de sede ve todas las sedes o solo la suya?
+**Fase 2 (analítica/compras)**
+5. **ABC**: configurable por período (30/60/90 días) y criterio valor/rotación. ✅
+6. **Portal proveedores MVP**: inicia con requisiciones/cotizaciones + OC; facturas/pagos en fase siguiente. ✅
+
+**Fase 3 (servicios/permisos avanzados)**
+7. **Servicios en inventario**: ABC/rotación por ingresos/frecuencia, separado de stock físico. ✅
+8. **Permisos admin de sede**: ve solo su sede por defecto, con permiso explícito para consolidado autorizado. ✅
 
 ## 12) Impacto técnico
 
