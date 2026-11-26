@@ -36,7 +36,7 @@ const LEVEL_OPTIONS: { value: LevelFilter; label: string }[] = [
   { value: 'ok', label: 'Con existencia' },
 ]
 
-const PRODUCTS_CATS_Q = `query{ categories{ id name } products(limit:500){ total items{ ${PRODUCT_FIELDS} } } }`
+const PRODUCTS_CATS_Q = `query{ categories{ id name } warehouses{ id name active } products(limit:500){ total items{ ${PRODUCT_FIELDS} } } }`
 const MOVES_Q = `query($p:ID,$k:String){ stockMoves(productId:$p, kind:$k, limit:500){ ${MOVE_FIELDS} } }`
 
 function LevelBadge({ p }: { p: Prod }) {
@@ -60,12 +60,13 @@ export default function Stock() {
   const [kind, setKind] = useState('')
   const [productId, setProductId] = useState('')
 
-  const prods = useGql<{ products: { items: Prod[] }; categories: { id: string; name: string | null }[] }>(PRODUCTS_CATS_Q)
+  const prods = useGql<{ products: { items: Prod[] }; categories: { id: string; name: string | null }[]; warehouses: { id: string; name: string | null; active: boolean }[] }>(PRODUCTS_CATS_Q)
   const allMoves = useGql<{ stockMoves: Move[] }>(MOVES_Q, { p: null, k: null })
   const hasMoveFilter = !!(kind || productId)
   const filtered = useGql<{ stockMoves: Move[] }>(MOVES_Q, { p: productId || null, k: kind || null }, { skip: !hasMoveFilter })
 
   const items = prods.data?.products.items ?? []
+  const warehouses = (prods.data?.warehouses ?? []).filter((w) => w.active)
   const tracked = useMemo(() => items.filter((p) => p.trackStock), [items])
   const moves = allMoves.data?.stockMoves ?? []
   const tableMoves = hasMoveFilter ? (filtered.data?.stockMoves ?? []) : moves
@@ -260,7 +261,19 @@ export default function Stock() {
         )}
       </div>
 
-      <StockActionModal open={!!modal} onClose={() => setModal(null)} mode={modal?.mode ?? 'entrada'} product={modal?.product ?? null} products={items} />
+      <StockActionModal
+        open={!!modal}
+        onClose={() => setModal(null)}
+        mode={modal?.mode ?? 'entrada'}
+        product={modal?.product ?? null}
+        products={items}
+        warehouses={warehouses}
+        onDone={() => {
+          prods.reload()
+          allMoves.reload()
+          filtered.reload()
+        }}
+      />
     </>
   )
 }

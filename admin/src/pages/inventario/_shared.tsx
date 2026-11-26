@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Badge, Button, Field, Input, Modal, Select, Tabs, Textarea, useFeedback, type Tone } from '../../components/ui'
 import { money, qty, toNum } from '../../lib/format'
 import { addDays, saveRecord, today } from '../../lib/records'
+import { useGql } from '../../lib/useGql'
 
 // ============================================================================ tipos y consultas
 
@@ -178,10 +179,11 @@ const parseNum = (v: string) => Number(v.trim().replace(',', '.'))
  *  - salida   → stock_moves kind 'ajuste' qty −
  *  - conteo   → stock_moves kind 'ajuste' con la diferencia (contado − existencia actual)
  */
-export function StockActionModal({ open, onClose, mode: initialMode, products, product, onDone }: { open: boolean; onClose: () => void; mode: StockMode; products: Prod[]; product?: Prod | null; onDone?: () => void }) {
+export function StockActionModal({ open, onClose, mode: initialMode, products, product, warehouses = [], onDone }: { open: boolean; onClose: () => void; mode: StockMode; products: Prod[]; product?: Prod | null; warehouses?: { id: string; name: string | null }[]; onDone?: () => void }) {
   const { toast } = useFeedback()
   const [mode, setMode] = useState<StockMode>(initialMode)
   const [productId, setProductId] = useState('')
+  const [warehouseId, setWarehouseId] = useState('')
   const [amount, setAmount] = useState('')
   const [cost, setCost] = useState('')
   const [note, setNote] = useState('')
@@ -196,11 +198,17 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
     [products, product],
   )
   const selected = options.find((p) => p.id === productId) ?? null
+  const wsQ = useGql<{ warehouseStocks: { qty: number }[] }>(
+    `query($p:ID,$w:ID){ warehouseStocks(productId:$p, warehouseId:$w){ qty } }`,
+    { p: productId || null, w: warehouseId || null },
+    { skip: !open || !productId || !warehouseId },
+  )
 
   useEffect(() => {
     if (!open) return
     setMode(initialMode)
     setProductId(product?.id ?? '')
+    setWarehouseId(warehouses[0]?.id ?? '')
     setAmount('')
     setCost(product ? String(product.cost) : '')
     setNote('')
@@ -216,7 +224,8 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
   }
 
   const n = amount.trim() === '' ? NaN : parseNum(amount)
-  const current = selected?.stock ?? 0
+  const warehouseQty = wsQ.data?.warehouseStocks?.[0]?.qty
+  const current = warehouseId ? (warehouseQty ?? 0) : (selected?.stock ?? 0)
   const preview =
     selected && Number.isFinite(n)
       ? mode === 'entrada'
@@ -228,6 +237,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
 
   async function submit() {
     if (!selected) return setError('Selecciona un producto.')
+    if (!warehouseId) return setError('Selecciona la bodega.')
     if (!Number.isFinite(n)) return setError('Escribe una cantidad válida.')
     let delta = 0
     let kind = 'ajuste'
@@ -257,7 +267,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
     }
     setSaving(true)
     try {
-      await saveRecord('stock_moves', { product_id: selected.id, qty: delta, kind, date: today(), unit_cost: unitCost, notes })
+      await saveRecord('stock_moves', { product_id: selected.id, warehouse_id: warehouseId, qty: delta, kind, date: today(), unit_cost: unitCost, notes })
       toast(`Inventario actualizado: ${selected.name} ${delta > 0 ? '+' : ''}${qty(delta)} ${unitLabel(selected.unit)}`)
       onDone?.()
       onClose()
@@ -319,7 +329,15 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
             ))}
           </Select>
         </Field>
-        <Field label={mode === 'conteo' ? 'Cantidad contada' : 'Cantidad'} required hint={selected ? `Existencia actual: ${qty(current)} ${unitLabel(selected.unit)}` : undefined}>
+        <Field label="Bodega" required className="sm:col-span-2" hint={warehouses.length === 0 ? 'No hay bodegas configuradas.' : 'Bodega donde aplica el movimiento'}>
+          <Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+            <option value="">Selecciona bodega…</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name ?? w.id}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={mode === 'conteo' ? 'Cantidad contada' : 'Cantidad'} required hint={selected ? `Existencia actual${warehouseId ? ' en bodega' : ''}: ${qty(current)} ${unitLabel(selected.unit)}` : undefined}>
           <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus />
         </Field>
         {mode === 'entrada' ? (
