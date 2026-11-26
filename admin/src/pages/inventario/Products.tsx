@@ -391,7 +391,6 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
   )
   const [wsForm, setWsForm] = useState<{ open: boolean; initial: Row | null }>({ open: false, initial: null })
   const m = marginOf(p)
-  const lvl = stockLevel(p)
   const stocks = stocksQ.data?.warehouseStocks ?? []
   const associatedIds = new Set(stocks.map((s) => s.warehouseId))
   const availableWarehouses = warehouses.filter((w) => !associatedIds.has(w.id))
@@ -399,6 +398,10 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
   const whOptions = (isEditingWs ? warehouses : availableWarehouses).map((w) => ({ value: w.id, label: w.name ?? w.id }))
   const allocated = stocks.reduce((a, s) => a + (Number(s.qty) || 0), 0)
   const unallocated = Math.max(0, (Number(p.stock) || 0) - allocated)
+  const minAllocated = stocks.reduce((a, s) => a + (Number(s.minQty) || 0), 0)
+  const effectiveMin = stocks.length ? minAllocated : (p.minStock ?? 0)
+  const lvlBase = stockLevel(p)
+  const lvl = stocks.length ? (p.stock <= 0 ? 'out' : p.stock <= effectiveMin ? 'low' : 'ok') : lvlBase
   const wsFields: FieldDef[] = [
     { key: 'warehouse_id', label: 'Bodega', type: 'select', required: true, options: whOptions },
     { key: 'qty', label: 'Existencia en bodega', type: 'number', required: true, defaultValue: 0, hint: `Stock total producto: ${qty(p.stock)}. Asignado en bodegas: ${qty(allocated)}. Sin asignar: ${qty(unallocated)}.` },
@@ -437,7 +440,7 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <KpiCard icon={Package} label="Existencia total" value={p.trackStock ? `${qty(p.stock)} ${unitLabel(p.unit)}` : 'Sin control'} tone={lvl === 'out' ? 'danger' : lvl === 'low' ? 'warning' : 'success'} hint={p.trackStock ? `Mínimo ${qty(p.minStock)} ${unitLabel(p.unit)}` : 'No controla inventario'} />
+        <KpiCard icon={Package} label="Existencia total" value={p.trackStock ? `${qty(p.stock)} ${unitLabel(p.unit)}` : 'Sin control'} tone={lvl === 'out' ? 'danger' : lvl === 'low' ? 'warning' : 'success'} hint={p.trackStock ? `Mínimo ${qty(effectiveMin)} ${unitLabel(p.unit)}${stocks.length ? ' (suma bodegas)' : ''}` : 'No controla inventario'} />
         <KpiCard icon={Warehouse} label="Valor a costo" value={money(stockValue(p))} tone="info" hint={`Costo unitario ${money(p.cost)}`} />
         <KpiCard icon={Percent} label="Margen" value={m == null ? '—' : pct(m, 1)} tone={m != null && m < 0.15 ? 'warning' : 'success'} hint={`Utilidad por unidad ${money(p.price - p.cost)}`} />
         <KpiCard icon={Tags} label="Precio con IVA" value={money(priceWithTax(p))} hint={`Sin IVA ${money(p.price)}`} />
