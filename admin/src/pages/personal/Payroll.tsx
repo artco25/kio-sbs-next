@@ -123,7 +123,12 @@ function Liquidation({ goParams }: { goParams: () => void }) {
 
   async function liquidate() {
     if (!params) return toast(`Configura los parámetros de nómina de ${year}`, 'error')
-    if (!eligible.length) return toast(`No hay empleados activos con pago ${freq} en este periodo`, 'error')
+    if (!eligible.length) {
+      const otherFreq = freq === 'mensual' ? 'quincenal' : 'mensual'
+      const inOther = (employees ?? []).filter((e) => (e.payFrequency || 'mensual') === otherFreq).length
+      const hint = inOther ? ` Hay ${inOther} empleado(s) con pago ${otherFreq}; cambia el tipo de periodo.` : ''
+      return toast(`No hay empleados activos con pago ${freq} en este periodo.${hint}`, 'error')
+    }
     setBusy('liq')
     try {
       const [existing, novs] = await Promise.all([gql<{ payslips: Slip[] }>(Q_SLIPS, { p: period }), gql<{ novelties: NoveltyRow[] }>(Q_NOV, { from: range.from, to: range.to })])
