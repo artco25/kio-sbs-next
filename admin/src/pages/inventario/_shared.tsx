@@ -27,6 +27,20 @@ export interface Prod {
   availablePos: boolean
   active: boolean
   stock: number
+  description: string | null
+  shortDescription: string | null
+  brand: string | null
+  weight: number
+  volume: number
+  cum: string | null
+  color: string | null
+  flavor: string | null
+  line1: string | null
+  line2: string | null
+  line3: string | null
+  line4: string | null
+  line5: string | null
+  line6: string | null
   category: CatRef | null
 }
 
@@ -42,7 +56,7 @@ export interface Move {
   product: { id: string; name: string | null; sku: string | null; unit: string | null } | null
 }
 
-export const PRODUCT_FIELDS = 'id name sku barcode unit price cost taxRate trackStock minStock availablePos active stock category{ id name color }'
+export const PRODUCT_FIELDS = 'id name sku barcode unit price cost taxRate trackStock minStock availablePos active stock description shortDescription brand weight volume cum color flavor line1 line2 line3 line4 line5 line6 category{ id name color }'
 export const MOVE_FIELDS = 'id productId qty kind date unitCost notes createdAt product{ id name sku unit }'
 
 // ============================================================================ presentación
@@ -62,6 +76,11 @@ export const MOVE_KIND: Record<string, { label: string; tone: Tone }> = {
   venta: { label: 'Venta', tone: 'info' },
   ajuste: { label: 'Ajuste', tone: 'warning' },
   devolucion: { label: 'Devolución', tone: 'brand' },
+  averia: { label: 'Avería', tone: 'danger' },
+  vencimiento: { label: 'Vencimiento', tone: 'danger' },
+  consumo: { label: 'Consumo interno', tone: 'warning' },
+  traslado_salida: { label: 'Traslado salida', tone: 'info' },
+  traslado_entrada: { label: 'Traslado entrada', tone: 'success' },
 }
 export const KIND_OPTIONS = [
   { value: '', label: 'Todos los tipos' },
@@ -69,6 +88,11 @@ export const KIND_OPTIONS = [
   { value: 'venta', label: 'Ventas' },
   { value: 'ajuste', label: 'Ajustes' },
   { value: 'devolucion', label: 'Devoluciones' },
+  { value: 'averia', label: 'Averías' },
+  { value: 'vencimiento', label: 'Vencimientos' },
+  { value: 'consumo', label: 'Consumo interno' },
+  { value: 'traslado_salida', label: 'Traslado salida' },
+  { value: 'traslado_entrada', label: 'Traslado entrada' },
 ]
 
 export function KindBadge({ kind }: { kind: string | null }) {
@@ -188,6 +212,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
   const [amount, setAmount] = useState('')
   const [cost, setCost] = useState('')
   const [note, setNote] = useState('')
+  const [salidaKind, setSalidaKind] = useState('ajuste')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -214,6 +239,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
     setAmount('')
     setCost(product ? String(product.cost) : '')
     setNote('')
+    setSalidaKind('ajuste')
     setError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -257,6 +283,7 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
       if (n > current) return setError(`La salida supera la existencia actual en bodega (${qty(current)}).`)
       if (!notes) return setError('Indica el motivo de la salida.')
       delta = -n
+      kind = salidaKind || 'ajuste'
     } else if (mode === 'traslado') {
       if (!warehouseToId) return setError('Selecciona la bodega destino.')
       if (warehouseToId === warehouseId) return setError('La bodega destino debe ser diferente al origen.')
@@ -380,7 +407,18 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
             <Input value={selected ? money(selected.cost) : ''} disabled readOnly />
           </Field>
         )}
-        <Field label={mode === 'salida' ? 'Motivo' : 'Nota'} required={mode === 'salida'} className="sm:col-span-2">
+        {mode === 'salida' && (
+          <Field label="Tipo de salida" required>
+            <Select value={salidaKind} onChange={(e) => setSalidaKind(e.target.value)}>
+              <option value="ajuste">Ajuste / merma</option>
+              <option value="averia">Avería / daño</option>
+              <option value="vencimiento">Vencimiento</option>
+              <option value="consumo">Consumo interno</option>
+              <option value="devolucion">Devolución</option>
+            </Select>
+          </Field>
+        )}
+        <Field label={mode === 'salida' ? 'Motivo / detalle' : 'Nota'} required={mode === 'salida'} className={mode === 'salida' ? '' : 'sm:col-span-2'}>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === 'entrada' ? 'Ej. Factura de compra, proveedor…' : mode === 'salida' ? 'Ej. Producto vencido, daño, consumo interno…' : 'Ej. Conteo de cierre de mes'} />
         </Field>
       </div>
