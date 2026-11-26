@@ -393,7 +393,10 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
   const m = marginOf(p)
   const lvl = stockLevel(p)
   const stocks = stocksQ.data?.warehouseStocks ?? []
-  const whOptions = warehouses.map((w) => ({ value: w.id, label: w.name ?? w.id }))
+  const associatedIds = new Set(stocks.map((s) => s.warehouseId))
+  const availableWarehouses = warehouses.filter((w) => !associatedIds.has(w.id))
+  const isEditingWs = !!wsForm.initial?.id
+  const whOptions = (isEditingWs ? warehouses : availableWarehouses).map((w) => ({ value: w.id, label: w.name ?? w.id }))
   const wsFields: FieldDef[] = [
     { key: 'warehouse_id', label: 'Bodega', type: 'select', required: true, options: whOptions },
     { key: 'qty', label: 'Existencia', type: 'number', required: true, defaultValue: 0 },
@@ -441,8 +444,14 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
       <div className="mt-6 mb-2 flex items-center justify-between gap-3">
         <h3 className="text-[15px] font-bold text-ink">Existencias por bodega</h3>
         {canStockWrite && (
-          <Button size="sm" variant="secondary" icon={Plus} onClick={() => setWsForm({ open: true, initial: { product_id: p.id, active: 1, qty: 0, min_qty: 0 } })}>
-            Asociar bodega
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={Plus}
+            disabled={!availableWarehouses.length}
+            onClick={() => setWsForm({ open: true, initial: { product_id: p.id, warehouse_id: availableWarehouses[0]?.id ?? '', active: 1, qty: stocks.length ? 0 : (p.trackStock ? p.stock : 0), min_qty: p.minStock ?? 0 } })}
+          >
+            {availableWarehouses.length ? 'Asociar bodega' : 'Todas las bodegas asociadas'}
           </Button>
         )}
       </div>
@@ -499,6 +508,10 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
           v.product_id = p.id
           const wh = warehouses.find((w) => w.id === v.warehouse_id)
           if (wh?.siteId) v.site_id = wh.siteId
+          if (!v.id) {
+            const existing = stocks.find((s) => s.warehouseId === v.warehouse_id)
+            if (existing) v.id = existing.id
+          }
           if (Number(v.qty) < 0 || Number(v.min_qty) < 0) return 'Las cantidades no pueden ser negativas.'
           return null
         }}
