@@ -234,8 +234,6 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
     if (!open) return
     setMode(initialMode)
     setProductId(product?.id ?? '')
-    setWarehouseId(warehouses[0]?.id ?? '')
-    setWarehouseToId(warehouses[1]?.id ?? warehouses[0]?.id ?? '')
     setAmount('')
     setCost(product ? String(product.cost) : '')
     setNote('')
@@ -243,6 +241,12 @@ export function StockActionModal({ open, onClose, mode: initialMode, products, p
     setError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    if (!warehouseId && warehouses.length > 0) setWarehouseId(warehouses[0].id)
+    if (!warehouseToId && warehouses.length > 0) setWarehouseToId(warehouses[1]?.id ?? warehouses[0].id)
+  }, [open, warehouses, warehouseId, warehouseToId])
 
   const pick = (id: string) => {
     setProductId(id)

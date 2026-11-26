@@ -427,7 +427,7 @@ export default function Products() {
         />
       )}
 
-      <StockActionModal open={!!adjust} onClose={() => setAdjust(null)} mode={adjust?.mode ?? 'entrada'} product={adjust?.product ?? null} products={items} />
+      <StockActionModal open={!!adjust} onClose={() => setAdjust(null)} mode={adjust?.mode ?? 'entrada'} product={adjust?.product ?? null} products={items} warehouses={(data?.warehouses ?? []).filter((w) => w.active)} />
     </>
   )
 }
