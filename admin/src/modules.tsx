@@ -5,6 +5,7 @@ import {
   CalendarDays,
   ChartColumn,
   ClipboardList,
+  Crown,
   Download,
   HandCoins,
   IdCard,
@@ -76,6 +77,7 @@ export const MODULES: Module[] = [
   { path: '/personal/nomina', label: 'Nómina', icon: Banknote, suites: ['personal'], page: lazy(() => import('./pages/personal/Payroll')), visible: (a) => a.can('payslips') },
 
   // Sistema
+  { path: '/sistema/plataforma', label: 'Plataforma', icon: Crown, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Platform')), visible: (a) => a.isPlatform },
   { path: '/sistema/usuarios', label: 'Usuarios', icon: Users, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Users')), visible: (a) => a.isAdmin },
   { path: '/sistema/roles', label: 'Roles y permisos', icon: ShieldCheck, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Roles')), visible: (a) => a.isAdmin },
   { path: '/sistema/dispositivos', label: 'Cajas y dispositivos', icon: MonitorSmartphone, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Devices')), visible: (a) => a.isAdmin },

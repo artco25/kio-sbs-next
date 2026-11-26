@@ -4,15 +4,16 @@ import { getToken, gql, setToken } from './gql'
 export type Role = 'admin' | 'contador' | 'cajero' | 'vendedor'
 
 export interface Me {
-  user: { id: string; name: string; email: string | null; role: Role; posTerminal: string | null }
+  user: { id: string; name: string; email: string | null; role: Role; posTerminal: string | null; platformRole: string | null }
   company: { id: string; name: string; nit: string | null; address: string | null; city: string | null; phone: string | null; email: string | null; receiptFooter: string | null; currency: string; plan: string }
   permissions: Record<string, { read: boolean; write: boolean }>
   /** Suites a las que puede ingresar (comercial, pos, financiero, personal, sistema). */
   suites: string[]
   roleName: string | null
+  platformRole: string | null
 }
 
-export const ME_FIELDS = `user { id name email role posTerminal } company { id name nit address city phone email receiptFooter currency plan } permissions suites roleName`
+export const ME_FIELDS = `user { id name email role posTerminal platformRole } company { id name nit address city phone email receiptFooter currency plan } permissions suites roleName platformRole`
 const ME_KEY = 'kio_sbs_me'
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -35,6 +36,9 @@ interface AuthState {
   can: (table: string, mode?: 'read' | 'write') => boolean
   isAdmin: boolean
   isFinance: boolean
+  platformRole: 'owner' | 'admin' | 'viewer' | null
+  isPlatform: boolean
+  isPlatformOwner: boolean
 }
 
 const Ctx = createContext<AuthState | null>(null)
@@ -108,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthState>(() => {
     const role = me?.user.role
+    const pr = (me?.platformRole ?? me?.user.platformRole ?? null) as 'owner' | 'admin' | 'viewer' | null
     return {
       me,
       ready,
@@ -119,6 +124,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       can: (table, mode = 'read') => !!me?.permissions?.[table]?.[mode],
       isAdmin: role === 'admin',
       isFinance: role === 'admin' || role === 'contador',
+      platformRole: pr,
+      isPlatform: !!pr,
+      isPlatformOwner: pr === 'owner',
     }
   }, [me, ready, login, setSession, logout, refresh])
 
