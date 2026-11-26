@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowRightLeft,
   Banknote,
   Building2,
@@ -61,10 +62,11 @@ export const MODULES: Module[] = [
   },
   { path: '/ventas/clientes', label: 'Clientes y proveedores', icon: UserRound, suites: ['comercial'], page: lazy(() => import('./pages/ventas/Partners')), visible: (a) => a.can('partners') },
   { path: '/ventas/cartera', label: 'Cartera', icon: HandCoins, suites: ['comercial', 'financiero'], page: lazy(() => import('./pages/ventas/Receivables')), visible: (a) => a.can('sales') },
+  { path: '/ventas/analitica', label: 'Analítica comercial', icon: Activity, suites: ['comercial'], page: lazy(() => import('./pages/comercial/Analytics')), visible: (a) => a.can('sales') },
   { path: '/inventario/productos', label: 'Productos', icon: Package, suites: ['comercial', 'inventario'], page: lazy(() => import('./pages/inventario/Products')), visible: (a) => a.can('products') },
   { path: '/inventario/categorias', label: 'Categorías', icon: Tags, suites: ['comercial', 'inventario'], page: lazy(() => import('./pages/inventario/Categories')), visible: (a) => a.can('categories') },
   { path: '/inventario/existencias', label: 'Existencias y movimientos', icon: ArrowRightLeft, suites: ['comercial', 'inventario'], page: lazy(() => import('./pages/inventario/Stock')), visible: (a) => a.can('stock_moves') },
-  { path: '/inventario/requisiciones', label: 'Requisiciones', icon: Truck, suites: ['inventario'], page: lazy(() => import('./pages/inventario/Requisitions')), visible: (a) => a.can('requisitions') },
+  { path: '/inventario/requisiciones', label: 'Requisiciones', icon: Truck, suites: ['comercial', 'inventario'], page: lazy(() => import('./pages/inventario/Requisitions')), visible: (a) => a.can('requisitions') },
 
   // Punto de venta
   { path: '/ventas/cajas', label: 'Cajas y sesiones', icon: Store, suites: ['pos'], page: lazy(() => import('./pages/ventas/PosSessions')), visible: (a) => a.can('pos_sessions') },
@@ -83,7 +85,7 @@ export const MODULES: Module[] = [
   // Sistema
   { path: '/sistema/plataforma', label: 'Plataforma', icon: Crown, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Platform')), visible: (a) => a.isPlatform },
   { path: '/sistema/sedes', label: 'Sedes', icon: MapPin, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Sites')), visible: (a) => a.isAdmin },
-  { path: '/inventario/bodegas', label: 'Bodegas', icon: Warehouse, suites: ['inventario'], page: lazy(() => import('./pages/sistema/Warehouses')), visible: (a) => a.can('warehouses') },
+  { path: '/inventario/bodegas', label: 'Bodegas', icon: Warehouse, suites: ['comercial', 'inventario'], page: lazy(() => import('./pages/sistema/Warehouses')), visible: (a) => a.can('warehouses') },
   { path: '/inventario/cajas', label: 'Cajas y dispositivos', icon: MonitorSmartphone, suites: ['inventario'], page: lazy(() => import('./pages/sistema/Devices')), visible: (a) => a.can('devices') },
   { path: '/sistema/usuarios', label: 'Usuarios', icon: Users, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Users')), visible: (a) => a.isAdmin },
   { path: '/sistema/roles', label: 'Roles y permisos', icon: ShieldCheck, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Roles')), visible: (a) => a.isAdmin },
