@@ -156,6 +156,9 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
   const [method, setMethod] = useState('efectivo')
   const [dueDate, setDueDate] = useState(initial?.dueDate?.slice(0, 10) ?? '')
   const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [newCust, setNewCust] = useState(false)
+  const [nc, setNc] = useState({ name: '', doc_number: '', phone: '', email: '' })
+  const [savingNc, setSavingNc] = useState(false)
   const [lines, setLines] = useState<EditLine[]>(() =>
     (initial?.lines ?? []).map((l) => ({ key: l.id, productId: l.productId, name: l.name, qty: String(l.qty), price: String(l.price), discount: String(l.discountPct || 0), taxRate: toNum(l.taxRate) })),
   )
@@ -197,6 +200,24 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
     if (m === 'credito' && !dueDate) {
       const days = toNum(partner?.paymentTermDays) > 0 ? toNum(partner?.paymentTermDays) : 30
       setDueDate(addDays(today(), days))
+    }
+  }
+
+  async function createCustomer() {
+    if (!nc.name.trim()) return toast('Nombre del cliente requerido.', 'error')
+    setSavingNc(true)
+    try {
+      const id = uuid()
+      await saveRecord('partners', { id, name: nc.name.trim(), doc_number: nc.doc_number.trim() || null, phone: nc.phone.trim() || null, email: nc.email.trim() || null, kind: 'cliente', active: 1 })
+      toast('Cliente creado')
+      setNewCust(false)
+      setNc({ name: '', doc_number: '', phone: '', email: '' })
+      await customers.reload()
+      setPartnerId(id)
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setSavingNc(false)
     }
   }
 
@@ -364,16 +385,19 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
                 </Select>
               </Field>
               <Field label="Cliente" hint={customers.error ? customers.error.message : mode === 'credito' ? 'Obligatorio para vender a crédito' : 'Sin cliente se registra como consumidor final'}>
-                <Select value={partnerId} onChange={(e) => changePartner(e.target.value)}>
-                  <option value="">Sin cliente (consumidor final)</option>
-                  {customerList.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                      {p.docNumber ? ` · ${p.docNumber}` : ''}
-                      {p.blocked ? ' (bloqueado)' : ''}
-                    </option>
-                  ))}
-                </Select>
+                <div className="flex gap-2">
+                  <Select value={partnerId} onChange={(e) => changePartner(e.target.value)} className="flex-1">
+                    <option value="">Sin cliente (consumidor final)</option>
+                    {customerList.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.docNumber ? ` · ${p.docNumber}` : ''}
+                        {p.blocked ? ' (bloqueado)' : ''}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button variant="secondary" icon={Plus} onClick={() => setNewCust(true)}>Nuevo</Button>
+                </div>
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Forma de pago">
@@ -427,6 +451,18 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
           </Card>
         </div>
       </div>
+
+      <Modal open={newCust} onClose={() => setNewCust(false)} title="Nuevo cliente" subtitle="Crea un cliente rápido para este pedido."
+        footer={<><Button variant="secondary" onClick={() => setNewCust(false)}>Cancelar</Button><Button loading={savingNc} onClick={createCustomer}>Crear cliente</Button></>}>
+        <div className="space-y-4">
+          <Field label="Nombre" required><Input value={nc.name} onChange={(e) => setNc({ ...nc, name: e.target.value })} placeholder="Nombre del cliente" /></Field>
+          <Field label="Documento / NIT"><Input value={nc.doc_number} onChange={(e) => setNc({ ...nc, doc_number: e.target.value })} /></Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Teléfono"><Input value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} /></Field>
+            <Field label="Correo"><Input value={nc.email} onChange={(e) => setNc({ ...nc, email: e.target.value })} /></Field>
+          </div>
+        </div>
+      </Modal>
     </>
   )
 }
@@ -593,11 +629,26 @@ function Viewer({ sale }: { sale: SaleDoc }) {
   const credit = sale.paymentMode === 'credito'
 
   async function voidDoc() {
-    if (!(await confirm({ title: 'Anular documento', message: `Se anulará ${sale.number}. Los pagos ya registrados y los movimientos de inventario no se revierten automáticamente. Esta acción no se puede deshacer.`, confirmLabel: 'Anular', danger: true }))) return
+    const whs = (whQ.data?.warehouses ?? []).filter((w) => w.active)
+    const defaultWh = whs.find((w) => w.isDefault)?.id ?? whs[0]?.id ?? ''
+    const stockLines = sale.lines.filter((l) => l.productId && toNum(l.qty) > 0)
+    const needsStockReturn = sale.status === 'confirmada' && stockLines.length > 0
+    const msg = needsStockReturn
+      ? `Se anulará ${sale.number}. También se devolverán ${stockLines.length} línea(s) al inventario${defaultWh ? ` en la bodega seleccionada por defecto` : ''}. Los pagos no se revierten automáticamente.`
+      : `Se anulará ${sale.number}. Esta acción no se puede deshacer.`
+    if (!(await confirm({ title: 'Anular documento', message: msg, confirmLabel: 'Anular', danger: true }))) return
+    if (needsStockReturn && !defaultWh) { toast('No hay bodega activa para devolver el inventario.', 'error'); return }
     setVoiding(true)
     try {
-      await saveRecord('sales', { id: sale.id, status: 'anulada' })
-      toast('Documento anulado')
+      if (needsStockReturn) {
+        const changes: Change[] = stockLines.map((l) => ({ table: 'stock_moves', row: { id: uuid(), product_id: l.productId, qty: toNum(l.qty), kind: 'devolucion', ref_id: sale.id, date: today(), warehouse_id: defaultWh, notes: `Anulación ${sale.number}` } }))
+        changes.push({ table: 'sales', row: { id: sale.id, status: 'anulada' } })
+        await saveRecords(changes)
+      } else {
+        await saveRecord('sales', { id: sale.id, status: 'anulada' })
+      }
+      toast(needsStockReturn ? 'Documento anulado e inventario devuelto' : 'Documento anulado')
+      navigate(0)
     } catch (e) {
       toast((e as Error).message, 'error')
     } finally {
