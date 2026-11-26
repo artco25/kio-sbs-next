@@ -10,9 +10,20 @@ import '../services/business.dart';
 import '../services/session.dart';
 import '../services/sync_service.dart';
 import '../theme/kio_theme.dart';
+import '../ui/entity_form.dart';
 import '../ui/format.dart';
 import '../ui/shell.dart';
 import '../ui/widgets.dart';
+
+const _posPartnerFields = [
+  FieldSpec('name', 'Nombre / Razón social', required: true, full: true),
+  FieldSpec('doc_type', 'Tipo documento', type: FieldType.select, options: {'CC': 'Cédula', 'NIT': 'NIT', 'CE': 'CE', 'PP': 'Pasaporte'}, defaultValue: 'CC'),
+  FieldSpec('doc_number', 'Número documento'),
+  FieldSpec('phone', 'Teléfono', type: FieldType.phone),
+  FieldSpec('email', 'Correo', type: FieldType.email),
+  FieldSpec('is_customer', 'Es cliente', type: FieldType.boolean, defaultValue: 1),
+  FieldSpec('is_supplier', 'Es proveedor', type: FieldType.boolean),
+];
 
 // =============================================================================
 // Caja POS (artix_pos): apertura, venta rápida, cobro y cierre con arqueo
@@ -390,16 +401,29 @@ class _PosPageState extends State<PosPage> {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: DropdownButtonFormField<String?>(
-            initialValue: _partnerId,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Cliente', prefixIcon: Icon(LucideIcons.userRound, size: 16)),
-            items: [
-              const DropdownMenuItem<String?>(value: null, child: Text('Consumidor final')),
-              for (final p in partners) DropdownMenuItem<String?>(value: p['id'] as String, child: Text(asStr(p['name']), overflow: TextOverflow.ellipsis)),
-            ],
-            onChanged: (v) => upd(() => _partnerId = v),
-          ),
+          child: Row(children: [
+            Expanded(
+              child: DropdownButtonFormField<String?>(
+                initialValue: _partnerId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Cliente', prefixIcon: Icon(LucideIcons.userRound, size: 16)),
+                items: [
+                  const DropdownMenuItem<String?>(value: null, child: Text('Consumidor final')),
+                  for (final p in partners) DropdownMenuItem<String?>(value: p['id'] as String, child: Text(asStr(p['name']), overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: (v) => upd(() => _partnerId = v),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filledTonal(
+              tooltip: 'Nuevo cliente',
+              onPressed: () async {
+                final r = await showEntityForm(context, table: 'partners', title: 'Nuevo cliente', fields: _posPartnerFields);
+                if (r != null && mounted) upd(() => _partnerId = r['id'] as String);
+              },
+              icon: const Icon(LucideIcons.userPlus, size: 18),
+            ),
+          ]),
         ),
         const SizedBox(height: 10),
         const Divider(),

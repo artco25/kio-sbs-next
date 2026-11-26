@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -61,17 +62,25 @@ class _KioShellState extends State<KioShell> {
     unawaited(LocalDb.instance.setMeta('ui:collapsed', _collapsed ? '1' : '0'));
   }
 
+  bool get _desktopPosOnly =>
+      !kIsWeb && (defaultTargetPlatform == TargetPlatform.linux || defaultTargetPlatform == TargetPlatform.windows);
+
   @override
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
-    final modules = kModules.where((m) => m.visible(s)).toList();
+    final modules = kModules.where((m) {
+      if (!m.visible(s)) return false;
+      if (_desktopPosOnly) return m.suite.key == 'pos';
+      return true;
+    }).toList();
     final current = modules.firstWhere((m) => m.key == _current, orElse: () => modules.first);
+    final suite = _desktopPosOnly ? 'pos' : _suite;
     final wide = MediaQuery.sizeOf(context).width >= 900;
 
     final nav = _NavPanel(
       modules: modules,
       current: current,
-      suite: _suite,
+      suite: suite,
       collapsed: wide && _collapsed,
       onSuite: (k) {
         setState(() => _suite = k);
