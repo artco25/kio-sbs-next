@@ -7,6 +7,7 @@ import {
   ChartColumn,
   ClipboardList,
   Crown,
+  KeyRound,
   Download,
   HandCoins,
   IdCard,
@@ -86,6 +87,7 @@ export const MODULES: Module[] = [
 
   // Sistema
   { path: '/sistema/plataforma', label: 'Plataforma', icon: Crown, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Platform')), visible: (a) => a.isPlatform },
+  { path: '/sistema/licencias', label: 'Licencias', icon: KeyRound, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Licenses')), visible: (a) => a.isPlatform },
   { path: '/sistema/sedes', label: 'Sedes', icon: MapPin, suites: ['sistema'], page: lazy(() => import('./pages/sistema/Sites')), visible: (a) => a.isAdmin },
   { path: '/inventario/bodegas', label: 'Bodegas', icon: Warehouse, suites: ['comercial', 'inventario'], page: lazy(() => import('./pages/sistema/Warehouses')), visible: (a) => a.can('warehouses') },
   { path: '/inventario/cajas', label: 'Cajas y dispositivos', icon: MonitorSmartphone, suites: ['inventario', 'sistema'], page: lazy(() => import('./pages/sistema/Devices')), visible: (a) => a.can('devices') },
