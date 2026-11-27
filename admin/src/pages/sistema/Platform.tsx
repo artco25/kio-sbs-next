@@ -1,8 +1,9 @@
-import { Building2, Crown, Eye, Plus, Shield, UserCog, Users } from 'lucide-react'
+import { Building2, Crown, Eye, LogIn, Plus, Shield, Trash2, UserCog, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { KpiCard } from '../../components/charts'
-import { Badge, Button, Card, Field, IconTile, Input, Modal, PageHeader, Select, useFeedback, type Tone } from '../../components/ui'
-import { useAuth } from '../../lib/auth'
+import { Badge, Button, Card, Field, IconButton, IconTile, Input, Modal, PageHeader, Select, useFeedback, type Tone } from '../../components/ui'
+import { ME_FIELDS, useAuth } from '../../lib/auth'
 import { money, qty, relative } from '../../lib/format'
 import { gql } from '../../lib/gql'
 
@@ -80,8 +81,9 @@ function UserModal({ open, onClose, onSaved, currentRole }: { open: boolean; onC
 }
 
 export default function Platform() {
-  const { platformRole } = useAuth()
-  const { toast } = useFeedback()
+  const { platformRole, startImpersonation } = useAuth()
+  const { toast, confirm } = useFeedback()
+  const navigate = useNavigate()
   const [companies, setCompanies] = useState<PlatformCompany[]>([])
   const [users, setUsers] = useState<PlatformUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -101,6 +103,24 @@ export default function Platform() {
 
   useEffect(() => { void load() }, [])
 
+  async function enterCompany(c: PlatformCompany) {
+    if (!(await confirm({ title: 'Entrar a empresa', message: `Vas a entrar como administrador a "${c.name}". Podrás operar dentro de esa empresa.`, confirmLabel: 'Entrar' }))) return
+    try {
+      const d = await gql<{ switchCompany: { token: string; me: any } }>(`mutation($id:ID!){ switchCompany(companyId:$id){ token me { ${ME_FIELDS} } } }`, { id: c.id })
+      startImpersonation(d.switchCompany.token, d.switchCompany.me)
+      navigate('/panel')
+    } catch (e) { toast((e as Error).message, 'error') }
+  }
+
+  async function removeCompany(c: PlatformCompany) {
+    if (!(await confirm({ title: 'Eliminar empresa', message: `Se eliminará "${c.name}" y todos sus datos relacionados (usuarios, productos, ventas, inventario, etc.). Esta acción no se puede deshacer.`, confirmLabel: 'Eliminar empresa', danger: true }))) return
+    try {
+      await gql(`mutation($id:ID!){ deleteCompany(id:$id) }`, { id: c.id })
+      toast('Empresa eliminada')
+      await load()
+    } catch (e) { toast((e as Error).message, 'error') }
+  }
+
   const totals = useMemo(() => ({
     companies: companies.length,
     active: companies.filter((c) => c.active).length,
@@ -109,6 +129,7 @@ export default function Platform() {
   }), [companies])
 
   const canManage = platformRole === 'owner' || platformRole === 'admin'
+  const isOwner = platformRole === 'owner'
 
   return (
     <>
@@ -137,10 +158,11 @@ export default function Platform() {
                   <th className="px-4 py-3 text-right">Ventas</th>
                   <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3">Última actividad</th>
+                  {isOwner && <th className="px-4 py-3 text-right">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td className="px-5 py-8 text-muted" colSpan={6}>Cargando...</td></tr>}
+                {loading && <tr><td className="px-5 py-8 text-muted" colSpan={isOwner ? 7 : 6}>Cargando...</td></tr>}
                 {!loading && companies.map((c) => (
                   <tr key={c.id} className="border-b border-line/60 last:border-0">
                     <td className="px-5 py-3">
@@ -157,9 +179,17 @@ export default function Platform() {
                     <td className="px-4 py-3 text-right font-medium">{qty(c.salesCount)}</td>
                     <td className="px-4 py-3 text-right font-semibold text-ink">{money(c.salesTotal)}</td>
                     <td className="px-4 py-3 text-muted">{c.lastActivityAt ? relative(c.lastActivityAt) : '—'}</td>
+                    {isOwner && (
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1">
+                          <IconButton icon={LogIn} label="Entrar a empresa" onClick={() => enterCompany(c)} />
+                          <IconButton icon={Trash2} label="Eliminar empresa" tone="danger" onClick={() => removeCompany(c)} />
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
-                {!loading && !companies.length && <tr><td className="px-5 py-8 text-muted" colSpan={6}>No hay empresas.</td></tr>}
+                {!loading && !companies.length && <tr><td className="px-5 py-8 text-muted" colSpan={isOwner ? 7 : 6}>No hay empresas.</td></tr>}
               </tbody>
             </table>
           </div>

@@ -328,6 +328,8 @@ export function DataTable<T extends { id?: string | null }>({
   empty,
   pageSize = 15,
   footer,
+  selected,
+  onSelect,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -336,13 +338,30 @@ export function DataTable<T extends { id?: string | null }>({
   empty?: ReactNode
   pageSize?: number
   footer?: ReactNode
+  selected?: Set<string>
+  onSelect?: (ids: Set<string>) => void
 }) {
   const [page, setPage] = useState(0)
   const pages = Math.max(1, Math.ceil(rows.length / pageSize))
-  useEffect(() => {
-    setPage(0)
-  }, [rows.length])
+  useEffect(() => { setPage(0) }, [rows.length])
   const slice = rows.slice(page * pageSize, page * pageSize + pageSize)
+  const selectable = !!onSelect
+  const pageIds = slice.map((r) => String(r.id ?? '')).filter(Boolean)
+  const allPageSelected = selectable && pageIds.length > 0 && pageIds.every((id) => selected?.has(id))
+  const somePageSelected = selectable && pageIds.some((id) => selected?.has(id)) && !allPageSelected
+  const toggleAll = () => {
+    if (!onSelect) return
+    const next = new Set(selected ?? [])
+    if (allPageSelected) pageIds.forEach((id) => next.delete(id))
+    else pageIds.forEach((id) => next.add(id))
+    onSelect(next)
+  }
+  const toggleOne = (id: string) => {
+    if (!onSelect) return
+    const next = new Set(selected ?? [])
+    if (next.has(id)) next.delete(id); else next.add(id)
+    onSelect(next)
+  }
 
   return (
     <div>
@@ -350,6 +369,11 @@ export function DataTable<T extends { id?: string | null }>({
         <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-y border-line bg-canvas/60 text-left">
+              {selectable && (
+                <th className="w-12 px-4 py-3">
+                  <input type="checkbox" checked={allPageSelected} ref={(el) => { if (el) el.indeterminate = somePageSelected }} onChange={toggleAll} className="h-4 w-4 rounded border-line accent-brand-600" />
+                </th>
+              )}
               {columns.map((c) => (
                 <th key={c.key} className={cn('px-5 py-3 text-[11px] font-bold tracking-wider text-muted uppercase', c.align === 'right' && 'text-right', c.align === 'center' && 'text-center', c.hideSm && 'hidden md:table-cell')}>
                   {c.header}
@@ -358,15 +382,24 @@ export function DataTable<T extends { id?: string | null }>({
             </tr>
           </thead>
           <tbody>
-            {slice.map((r, i) => (
-              <tr key={(r.id as string) ?? i} onClick={onRowClick ? () => onRowClick(r) : undefined} className={cn('border-b border-line last:border-0 transition', onRowClick && 'cursor-pointer hover:bg-brand-50/50')}>
-                {columns.map((c) => (
-                  <td key={c.key} className={cn('px-5 py-3.5 align-middle text-ink', c.align === 'right' && 'text-right tabular-nums', c.align === 'center' && 'text-center', c.hideSm && 'hidden md:table-cell', c.className)}>
-                    {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? '—')}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {slice.map((r, i) => {
+              const rid = String(r.id ?? '')
+              const isSel = selectable && !!rid && !!selected?.has(rid)
+              return (
+                <tr key={(r.id as string) ?? i} onClick={onRowClick ? () => onRowClick(r) : undefined} className={cn('border-b border-line last:border-0 transition', onRowClick && 'cursor-pointer hover:bg-brand-50/50', isSel && 'bg-brand-50/40')}>
+                  {selectable && (
+                    <td className="w-12 px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={isSel} onChange={() => rid && toggleOne(rid)} className="h-4 w-4 rounded border-line accent-brand-600" />
+                    </td>
+                  )}
+                  {columns.map((c) => (
+                    <td key={c.key} className={cn('px-5 py-3.5 align-middle text-ink', c.align === 'right' && 'text-right tabular-nums', c.align === 'center' && 'text-center', c.hideSm && 'hidden md:table-cell', c.className)}>
+                      {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? '—')}
+                    </td>
+                  ))}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
         {loading && rows.length === 0 && (
@@ -376,14 +409,12 @@ export function DataTable<T extends { id?: string | null }>({
         )}
         {!loading && rows.length === 0 && (empty ?? <EmptyState title="No hay registros" message="Cuando agregues información aparecerá aquí." />)}
       </div>
-      {(rows.length > pageSize || footer) && (
+      {(rows.length > pageSize || footer || (selectable && (selected?.size ?? 0) > 0)) && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3 text-sm text-muted">
-          <div>{footer}</div>
+          <div>{selectable && (selected?.size ?? 0) > 0 ? <span className="font-medium text-brand-700">{selected!.size} seleccionado(s)</span> : footer}</div>
           {rows.length > pageSize && (
             <div className="flex items-center gap-2">
-              <span>
-                {page * pageSize + 1}–{Math.min(rows.length, (page + 1) * pageSize)} de {rows.length}
-              </span>
+              <span>{page * pageSize + 1}–{Math.min(rows.length, (page + 1) * pageSize)} de {rows.length}</span>
               <IconButton icon={ChevronLeft} label="Anterior" disabled={page === 0} onClick={() => setPage((p) => p - 1)} />
               <IconButton icon={ChevronRight} label="Siguiente" disabled={page >= pages - 1} onClick={() => setPage((p) => p + 1)} />
             </div>

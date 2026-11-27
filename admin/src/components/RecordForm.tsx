@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { deleteRecord, saveRecord, type Row } from '../lib/records'
 import { Button, cn, Field, Input, Modal, Select, Switch, Textarea, useFeedback } from './ui'
 
-export type FieldType = 'text' | 'email' | 'tel' | 'number' | 'money' | 'percent' | 'integer' | 'date' | 'textarea' | 'select' | 'boolean' | 'color'
+export type FieldType = 'text' | 'email' | 'tel' | 'number' | 'money' | 'percent' | 'integer' | 'date' | 'textarea' | 'select' | 'boolean' | 'color' | 'multiselect'
 
 /** Campo de un formulario de registro. `key` = columna snake_case de schema/tables.json. */
 export interface FieldDef {
@@ -17,6 +17,7 @@ export interface FieldDef {
   placeholder?: string
   defaultValue?: unknown
   disabled?: boolean
+  skipSave?: boolean
 }
 
 const COLORS = ['#4338CA', '#6366F1', '#0284C7', '#16A34A', '#D97706', '#DC2626', '#DB2777', '#7C3AED', '#1E1B4B']
@@ -50,7 +51,7 @@ export function RecordForm({
   extra?: Row
   /** Devuelve un mensaje de error o null. Puede modificar `values`. */
   validate?: (values: Row) => string | null
-  onSaved?: (id: string, values: Row) => void
+  onSaved?: (id: string, values: Row, allValues?: Row) => void
   canDelete?: boolean
   children?: ReactNode
 }) {
@@ -64,8 +65,10 @@ export function RecordForm({
     if (!open) return
     const v: Row = {}
     for (const f of fields) {
-      const raw = initial?.[f.key] ?? f.defaultValue ?? (f.type === 'boolean' ? 0 : '')
-      v[f.key] = f.type === 'percent' && raw !== '' ? Math.round(Number(raw) * 10000) / 100 : raw
+      const raw = initial?.[f.key] ?? f.defaultValue ?? (f.type === 'boolean' ? 0 : f.type === 'multiselect' ? [] : '')
+      if (f.type === 'percent' && raw !== '') v[f.key] = Math.round(Number(raw) * 10000) / 100
+      else if (f.type === 'multiselect') v[f.key] = Array.isArray(raw) ? raw : raw ? [String(raw)] : []
+      else v[f.key] = raw
     }
     setValues(v)
     setErrors({})
@@ -79,6 +82,12 @@ export function RecordForm({
     const out: Row = {}
     for (const f of fields) {
       let v = values[f.key]
+      if (f.type === 'multiselect') {
+        const arr = Array.isArray(v) ? v.filter(Boolean) : []
+        if (f.required && arr.length === 0) errs[f.key] = 'Obligatorio'
+        if (!f.skipSave) out[f.key] = arr
+        continue
+      }
       if (f.required && (v === '' || v == null)) errs[f.key] = 'Obligatorio'
       if (['number', 'money', 'percent', 'integer'].includes(f.type ?? '')) {
         if (v === '' || v == null) v = 0
@@ -90,7 +99,7 @@ export function RecordForm({
       } else if (f.type === 'boolean') v = v ? 1 : 0
       else if (typeof v === 'string') v = v.trim() === '' ? null : v.trim()
       if (f.type === 'email' && v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v))) errs[f.key] = 'Correo inválido'
-      out[f.key] = v
+      if (!f.skipSave) out[f.key] = v
     }
     setErrors(errs)
     if (Object.keys(errs).length) return
@@ -104,7 +113,7 @@ export function RecordForm({
     try {
       const id = await saveRecord(table, merged)
       toast(isNew ? 'Registro creado' : 'Cambios guardados')
-      onSaved?.(id, merged)
+      onSaved?.(id, merged, values)
       onClose()
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -190,6 +199,26 @@ function renderInput(f: FieldDef, value: unknown, onChange: (v: unknown) => void
           ))}
         </div>
       )
+    case 'multiselect': {
+      const sel = Array.isArray(value) ? value.map(String) : []
+      return (
+        <div className="max-h-44 overflow-auto rounded-xl border border-line bg-white p-2 space-y-1">
+          {(f.options ?? []).map((o) => {
+            const checked = sel.includes(o.value)
+            return (
+              <label key={o.value} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-canvas cursor-pointer">
+                <input type="checkbox" checked={checked} disabled={f.disabled} onChange={(e) => {
+                  const next = e.target.checked ? [...sel, o.value] : sel.filter((x) => x !== o.value)
+                  onChange(next)
+                }} className="h-4 w-4 rounded border-line accent-brand-600" />
+                <span>{o.label}</span>
+              </label>
+            )
+          })}
+          {!f.options?.length && <p className="px-2 py-1 text-xs text-muted">Sin opciones</p>}
+        </div>
+      )
+    }
     case 'date':
       return <Input type="date" value={v.slice(0, 10)} disabled={f.disabled} onChange={(e) => onChange(e.target.value)} />
     case 'number':

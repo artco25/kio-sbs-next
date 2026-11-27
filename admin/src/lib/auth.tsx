@@ -15,6 +15,15 @@ export interface Me {
 
 export const ME_FIELDS = `user { id name email role posTerminal platformRole siteId } company { id name nit address city phone email receiptFooter currency plan } permissions suites roleName platformRole`
 const ME_KEY = 'kio_sbs_me'
+const IMPERSONATOR_KEY = 'kio_sbs_impersonator'
+
+type ImpersonatorSession = { token: string; me: Me }
+function loadImpersonator(): ImpersonatorSession | null {
+  try { const raw = localStorage.getItem(IMPERSONATOR_KEY); return raw ? (JSON.parse(raw) as ImpersonatorSession) : null } catch { return null }
+}
+function storeImpersonator(v: ImpersonatorSession | null) {
+  try { if (v) localStorage.setItem(IMPERSONATOR_KEY, JSON.stringify(v)); else localStorage.removeItem(IMPERSONATOR_KEY) } catch { /* noop */ }
+}
 
 export const ROLE_LABEL: Record<Role, string> = {
   admin: 'Dueño / Gerente',
@@ -39,6 +48,9 @@ interface AuthState {
   platformRole: 'owner' | 'admin' | 'viewer' | null
   isPlatform: boolean
   isPlatformOwner: boolean
+  impersonating: boolean
+  startImpersonation: (token: string, me: Me) => void
+  returnToPlatform: () => void
 }
 
 const Ctx = createContext<AuthState | null>(null)
@@ -55,6 +67,7 @@ function loadCached(): Me | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(() => (getToken() ? loadCached() : null))
   const [ready, setReady] = useState(false)
+  const [impersonating, setImpersonating] = useState(() => !!loadImpersonator())
 
   const store = (m: Me | null) => {
     setMe(m)
@@ -81,6 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const onUnauthorized = () => {
       setToken(null)
       store(null)
+      storeImpersonator(null)
+      setImpersonating(false)
     }
     window.addEventListener('kio:unauthorized', onUnauthorized)
     return () => window.removeEventListener('kio:unauthorized', onUnauthorized)
@@ -108,6 +123,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setToken(null)
     store(null)
+    storeImpersonator(null)
+    setImpersonating(false)
+  }, [])
+
+  const startImpersonation = useCallback((token: string, m: Me) => {
+    const currentToken = getToken()
+    if (currentToken && me) storeImpersonator({ token: currentToken, me })
+    setToken(token)
+    store(m)
+    setImpersonating(true)
+  }, [me])
+
+  const returnToPlatform = useCallback(() => {
+    const imp = loadImpersonator()
+    if (!imp) return
+    setToken(imp.token)
+    store(imp.me)
+    storeImpersonator(null)
+    setImpersonating(false)
   }, [])
 
   const value = useMemo<AuthState>(() => {
@@ -127,8 +161,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       platformRole: pr,
       isPlatform: !!pr,
       isPlatformOwner: pr === 'owner',
+      impersonating,
+      startImpersonation,
+      returnToPlatform,
     }
-  }, [me, ready, login, setSession, logout, refresh])
+  }, [me, ready, login, setSession, logout, refresh, impersonating, startImpersonation, returnToPlatform])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

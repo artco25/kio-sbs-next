@@ -17,6 +17,7 @@ import 'package:kio_sbs/pages/login_page.dart';
 import 'package:kio_sbs/services/business.dart';
 import 'package:kio_sbs/services/session.dart';
 import 'package:kio_sbs/services/sync_service.dart';
+import 'package:kio_sbs/services/updater.dart';
 import 'package:kio_sbs/theme/kio_theme.dart';
 import 'package:kio_sbs/ui/shell.dart';
 import 'package:provider/provider.dart';
@@ -127,6 +128,7 @@ void main() {
           ChangeNotifierProvider.value(value: db),
           ChangeNotifierProvider.value(value: session),
           ChangeNotifierProvider.value(value: sync),
+          ChangeNotifierProvider(create: (_) => UpdateService(session)),
         ],
         child: MaterialApp(
           debugShowCheckedModeBanner: false,

@@ -37,7 +37,7 @@ final kModules = <Module>[
   // Eje 2: Punto de venta (artix_pos, artix_kds)
   Module('caja', 'Caja POS', LucideIcons.store, Kio.warning, Suite.pos, (_) => const PosPage(), (s) => s.canWrite('pos_sessions')),
   Module('sesiones', 'Sesiones de caja', LucideIcons.calculator, Kio.navy, Suite.pos, (_) => const PosSessionsPage(), (s) => s.canRead('pos_sessions')),
-  Module('cocina', 'Pantalla de cocina', LucideIcons.chefHat, Kio.danger, Suite.pos, (_) => const KdsPage(), (s) => s.canWrite('sales')),
+  Module('cocina', 'Pantalla de cocina', LucideIcons.chefHat, Kio.danger, Suite.pos, (_) => const KdsPage(), (s) => s.isRestaurant && s.canWrite('sales')),
 
   // Eje 3: Financiero (artix_tesoreria, artix_caja_menor, artix_informes)
   Module('recibos', 'Recibos de caja', LucideIcons.receiptText, Kio.info, Suite.financiero, (_) => const PaymentsPage(), (s) => s.canRead('payments')),

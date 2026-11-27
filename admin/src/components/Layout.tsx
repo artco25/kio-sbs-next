@@ -2,6 +2,7 @@ import { Bell, Building2, Check, ChevronDown, ChevronsUpDown, LayoutGrid, LifeBu
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ROLE_LABEL, useAuth } from '../lib/auth'
+import { Button } from './ui'
 import { getCurrentSuite, setCurrentSuite, suiteOf, SUITES, type SuiteKey } from '../lib/suites'
 import { useGql } from '../lib/useGql'
 import { allowedModules, MODULES } from '../modules'
@@ -364,7 +365,7 @@ function UserMenu() {
 }
 
 export function Layout() {
-  const { me } = useAuth()
+  const { me, impersonating, returnToPlatform } = useAuth()
   const [drawer, setDrawer] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -374,6 +375,7 @@ export function Layout() {
     }
   })
   const location = useLocation()
+  const navigate = useNavigate()
   const scroller = useRef<HTMLDivElement>(null)
   useEffect(() => {
     scroller.current?.scrollTo({ top: 0 })
@@ -390,7 +392,7 @@ export function Layout() {
 
   return (
     <div className="h-screen bg-canvas lg:p-3">
-      <div className="mx-auto flex h-full max-w-[1680px] overflow-hidden bg-white lg:rounded-[26px] lg:border lg:border-line lg:shadow-card">
+      <div className="flex h-full w-full overflow-hidden bg-white lg:rounded-[26px] lg:border lg:border-line lg:shadow-card">
         {/* Menú lateral: alto de la pantalla, scroll propio y plegable */}
         <aside className={cn('hidden h-full shrink-0 border-r border-line transition-[width] duration-200 lg:block', collapsed ? 'w-[84px]' : 'w-[264px]')}>
           <Sidebar collapsed={collapsed} onToggle={toggle} />
@@ -409,6 +411,12 @@ export function Layout() {
         )}
 
         <main className="flex min-w-0 flex-1 flex-col bg-canvas/40">
+          {impersonating && (
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 sm:px-8">
+              <span>Estás viendo la empresa <span className="font-semibold">{me?.company.name}</span> como super admin. Puedes volver a tu cuenta de plataforma.</span>
+              <Button size="sm" variant="secondary" onClick={() => { returnToPlatform(); navigate('/sistema/plataforma') }}>Volver a mi cuenta</Button>
+            </div>
+          )}
           <header className="flex shrink-0 items-center gap-3 border-b border-line bg-white px-4 py-3.5 sm:px-8">
             <button className="rounded-xl p-2 text-ink-soft hover:bg-brand-50 lg:hidden" onClick={() => setDrawer(true)} aria-label="Abrir menú">
               <Menu {...ICON} />

@@ -44,6 +44,7 @@ class _LoginPageState extends State<LoginPage> {
     final s = context.read<Session>();
     final api = TextEditingController(text: s.apiUrl);
     final sync = TextEditingController(text: s.syncUrl);
+    final admin = TextEditingController(text: s.adminUrl);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -54,6 +55,8 @@ class _LoginPageState extends State<LoginPage> {
             TextField(controller: api, decoration: const InputDecoration(labelText: 'API (kio-sbs-api)')),
             const SizedBox(height: 12),
             TextField(controller: sync, decoration: const InputDecoration(labelText: 'Sincronización (kio-sbs-sync)')),
+            const SizedBox(height: 12),
+            TextField(controller: admin, decoration: const InputDecoration(labelText: 'Admin / actualizaciones')),
           ]),
         ),
         actions: [
@@ -62,7 +65,7 @@ class _LoginPageState extends State<LoginPage> {
         ],
       ),
     );
-    if (ok == true) await s.setServers(api.text, sync.text);
+    if (ok == true) await s.setServers(api.text, sync.text, admin.text);
   }
 
   @override

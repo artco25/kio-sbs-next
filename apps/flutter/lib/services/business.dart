@@ -8,6 +8,7 @@ const kPayMethods = {
   'tarjeta': 'Tarjeta débito/crédito',
   'transferencia': 'Transferencia',
   'nequi': 'Nequi / Daviplata',
+  'contra_entrega': 'Domicilio · cobro entrega',
 };
 
 class CartLine {
@@ -96,6 +97,34 @@ class Biz {
     return {for (final r in rows) asStr(r['product_id']): asNum(r['q']).toDouble()};
   }
 
+  /// Existencias operativas del producto en la sede del POS (o en todas si no hay sede fijada).
+  Future<List<DbRow>> warehouseStocksForSale(String productId) async {
+    final where = "ws.deleted = 0 AND ws.active = 1 AND ws.product_id = ?${s.siteId.isEmpty ? '' : ' AND ws.site_id = ?'}";
+    final args = <Object?>[productId, if (s.siteId.isNotEmpty) s.siteId];
+    return db.raw('''
+      SELECT ws.*, COALESCE(w.is_default, 0) AS is_default
+        FROM warehouse_stocks ws LEFT JOIN warehouses w ON w.id = ws.warehouse_id
+       WHERE $where
+       ORDER BY is_default DESC, ws.qty DESC''', args);
+  }
+
+  Future<double> availableStock(String productId) async {
+    final rows = await warehouseStocksForSale(productId);
+    if (rows.isEmpty) {
+      // Sin existencias por bodega descargadas aún: se usa el kardex (stock_moves) como respaldo.
+      final m = await db.raw(
+          "SELECT COALESCE(SUM(qty), 0) AS q FROM stock_moves WHERE deleted = 0 AND product_id = ?${s.siteId.isEmpty ? '' : ' AND (site_id = ? OR site_id IS NULL)'}",
+          [productId, if (s.siteId.isNotEmpty) s.siteId]);
+      return asNum(m.first['q']).toDouble();
+    }
+    return rows.fold<double>(0, (sum, r) => sum + asNum(r['qty']).toDouble());
+  }
+
+  Future<DbRow?> preferredWarehouse(String productId) async {
+    final rows = await warehouseStocksForSale(productId);
+    return rows.isEmpty ? null : rows.first;
+  }
+
   /// Control de cartera (artix_cartera): cliente bloqueado, mora o cupo excedido.
   Future<void> checkCredit(String? partnerId, double amount) async {
     if (partnerId == null) throw BusinessException('Selecciona el cliente para vender a crédito');
@@ -128,6 +157,10 @@ class Biz {
     String? notes,
     String? kitchenStatus,
     String? tableRef,
+    String? deliveryUserId,
+    String? deliveryRiderName,
+    String? deliveryAddress,
+    String? deliveryStatus,
   }) async {
     if (lines.isEmpty) throw BusinessException('Agrega al menos un producto');
     final t = Totals.of(lines);
@@ -136,6 +169,25 @@ class Biz {
     if (confirm && paymentMode == 'credito') await checkCredit(partnerId, t.total);
 
     final existing = id == null ? null : await db.byId('sales', id);
+    final wasConfirmed = asStr(existing?['status']) == 'confirmada';
+    final needs = <String, double>{};
+    final names = <String, String>{};
+    if (confirm && !wasConfirmed) {
+      for (final l in lines) {
+        if (!l.trackStock || l.productId == null) continue;
+        needs[l.productId!] = (needs[l.productId!] ?? 0) + l.qty;
+        names[l.productId!] = l.name;
+      }
+      for (final entry in needs.entries) {
+        final available = await availableStock(entry.key);
+        if (entry.value > available + 1e-6) {
+          throw BusinessException('Stock insuficiente para ${names[entry.key]}: hay ${qty(available)}, se piden ${qty(entry.value)}');
+        }
+      }
+    }
+    final warehousesForSale = <String, DbRow?>{
+      for (final pid in needs.keys) pid: await preferredWarehouse(pid),
+    };
     final saleId = id ?? newId();
     final number = asStr(existing?['number']).isNotEmpty
         ? existing!['number'] as String
@@ -160,6 +212,11 @@ class Biz {
           'total': t.total,
           'kitchen_status': kitchenStatus,
           'table_ref': tableRef,
+          'delivery_user_id': deliveryUserId,
+          'delivery_rider_name': deliveryRiderName,
+          'delivery_address': deliveryAddress,
+          'delivery_status': deliveryStatus,
+          'delivery_collected_amount': 0,
           'notes': notes,
         }
       ),
@@ -186,8 +243,29 @@ class Biz {
         'total': l.total,
         'sequence': i + 1,
       }));
-      if (confirm && l.trackStock && l.productId != null) {
-        rows.add(('stock_moves', {'id': newId(), 'product_id': l.productId, 'qty': -l.qty, 'kind': 'venta', 'ref_id': saleId, 'date': localToday()}));
+      if (confirm && !wasConfirmed && l.trackStock && l.productId != null) {
+        rows.add(('stock_moves', {
+          'id': newId(),
+          'product_id': l.productId,
+          'qty': -l.qty,
+          'kind': 'venta',
+          'ref_id': saleId,
+          'date': localToday(),
+          'site_id': s.siteId.isEmpty ? null : s.siteId,
+          'warehouse_id': warehousesForSale[l.productId]?['id'],
+          // El backend audita el movimiento pero no vuelve a descontar: ya se descontó aquí.
+          'notes': 'ws_synced=1',
+        }));
+      }
+    }
+    if (confirm && !wasConfirmed) {
+      for (final entry in needs.entries) {
+        final wh = warehousesForSale[entry.key];
+        if (wh == null) continue;
+        rows.add(('warehouse_stocks', {
+          'id': wh['id'],
+          'qty': asNum(wh['qty']).toDouble() - entry.value,
+        }));
       }
     }
     for (final (method, amount) in payments) {
@@ -239,6 +317,71 @@ class Biz {
     if (left > 0.5) throw BusinessException('El valor supera el saldo del cliente en ${money(left)}');
     await db.saveAll(rows, companyId: s.companyId, userId: s.userId);
     return numbers;
+  }
+
+  /// Salida de efectivo de la caja abierta (gasto de caja menor que sí descuenta el arqueo).
+  Future<void> registerCashOut({required String posSessionId, required double amount, required String concept, String category = 'otros'}) async {
+    if (amount <= 0) throw BusinessException('El valor de la salida debe ser mayor a cero');
+    if (concept.trim().isEmpty) throw BusinessException('Escribe el concepto de la salida');
+    await db.saveAll([
+      (
+        'expenses',
+        {
+          'id': newId(),
+          'number': await db.nextNumber('EG', s.terminal),
+          'date': localNow(),
+          'concept': concept.trim(),
+          'category': category,
+          'amount': amount,
+          'tax': 0,
+          'pos_session_id': posSessionId,
+          'status': 'borrador',
+          'requested_by': s.userId,
+          'notes': 'Salida registrada desde el POS',
+        },
+      ),
+    ], companyId: s.companyId, userId: s.userId);
+  }
+
+  /// El domiciliario regresó con el recaudo: entra como pago en efectivo y se abona a la venta.
+  Future<void> registerDeliveryCollection({required String saleId, required double amount, String? posSessionId}) async {
+    if (amount <= 0) throw BusinessException('El recaudo debe ser mayor a cero');
+    final sale = await db.byId('sales', saleId);
+    if (sale == null) throw BusinessException('No se encontró el domicilio');
+    final total = asNum(sale['total']).toDouble();
+    final already = asNum(sale['delivery_collected_amount']).toDouble();
+    if (already + amount > total + 1e-6) {
+      throw BusinessException('El recaudo supera el total de la venta (${money(total - already)} pendiente)');
+    }
+    final now = localNow();
+    final fullyCollected = already + amount >= total - 0.5;
+    await db.saveAll([
+      (
+        'payments',
+        {
+          'id': newId(),
+          'number': await db.nextNumber('RC', s.terminal),
+          'kind': 'venta',
+          'sale_id': saleId,
+          'partner_id': sale['partner_id'],
+          'pos_session_id': posSessionId,
+          'date': now,
+          'method': 'efectivo',
+          'amount': amount,
+          'user_id': s.userId,
+          'notes': 'Recaudo domiciliario · ${asStr(sale['delivery_rider_name'])}',
+        },
+      ),
+      (
+        'sales',
+        {
+          'id': saleId,
+          'delivery_status': fullyCollected ? 'entregado' : 'recaudo_parcial',
+          'delivery_collected_at': now,
+          'delivery_collected_amount': already + amount,
+        },
+      ),
+    ], companyId: s.companyId, userId: s.userId);
   }
 
   /// Sesión de caja abierta del usuario en este equipo.

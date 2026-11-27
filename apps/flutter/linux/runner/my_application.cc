@@ -1,9 +1,6 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
-#ifdef GDK_WINDOWING_X11
-#include <gdk/gdkx.h>
-#endif
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -14,9 +11,32 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
-// Called when first Flutter frame received.
+// Called when first Flutter frame received. The window is mapped here, so this
+// is the first reliable moment to give keyboard focus to the Flutter view.
 static void first_frame_cb(MyApplication* self, FlView* view) {
-  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  GtkWidget* toplevel = gtk_widget_get_toplevel(GTK_WIDGET(view));
+  gtk_widget_show(toplevel);
+  gtk_window_present(GTK_WINDOW(toplevel));
+  gtk_widget_set_can_focus(GTK_WIDGET(view), TRUE);
+  gtk_widget_grab_focus(GTK_WIDGET(view));
+  gtk_window_set_focus(GTK_WINDOW(toplevel), GTK_WIDGET(view));
+}
+
+static void toggle_maximize(GtkWindow* window) {
+  if (gtk_window_is_maximized(window)) {
+    gtk_window_unmaximize(window);
+  } else {
+    gtk_window_maximize(window);
+  }
+}
+
+// Some window managers focus the titlebar instead of the client area when the
+// app regains focus. Keep keyboard events going to Flutter.
+static gboolean ensure_view_focus_cb(GtkWidget* widget, GdkEventFocus* event, gpointer data) {
+  (void)widget;
+  (void)event;
+  gtk_widget_grab_focus(GTK_WIDGET(data));
+  return FALSE;
 }
 
 // Implements GApplication::activate.
@@ -25,32 +45,36 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  // Use a header bar when running in GNOME as this is the common style used
-  // by applications and is the setup most users will be using (e.g. Ubuntu
-  // desktop).
-  // If running on X and not using GNOME then just use a traditional title bar
-  // in case the window manager does more exotic layout, e.g. tiling.
-  // If running on Wayland assume the header bar will work (may need changing
-  // if future cases occur).
-  gboolean use_header_bar = TRUE;
-#ifdef GDK_WINDOWING_X11
-  GdkScreen* screen = gtk_window_get_screen(window);
-  if (GDK_IS_X11_SCREEN(screen)) {
-    const gchar* wm_name = gdk_x11_screen_get_window_manager_name(screen);
-    if (g_strcmp0(wm_name, "GNOME Shell") != 0) {
-      use_header_bar = FALSE;
-    }
-  }
-#endif
-  if (use_header_bar) {
-    GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
-    gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "KIO SBS");
-    gtk_header_bar_set_show_close_button(header_bar, TRUE);
-    gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
-  } else {
-    gtk_window_set_title(window, "KIO SBS");
-  }
+  // Cabecera propia con botones explícitos: algunos administradores de
+  // ventanas (GNOME/tiling) no muestran minimizar/maximizar por defecto.
+  GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
+  gtk_header_bar_set_title(header_bar, "KIO SBS");
+  gtk_header_bar_set_subtitle(header_bar, "Punto de venta");
+  gtk_header_bar_set_show_close_button(header_bar, FALSE);
+
+  GtkWidget* controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget* minimize = gtk_button_new_from_icon_name("window-minimize-symbolic", GTK_ICON_SIZE_BUTTON);
+  GtkWidget* maximize = gtk_button_new_from_icon_name("window-maximize-symbolic", GTK_ICON_SIZE_BUTTON);
+  GtkWidget* close = gtk_button_new_from_icon_name("window-close-symbolic", GTK_ICON_SIZE_BUTTON);
+  gtk_widget_set_tooltip_text(minimize, "Minimizar");
+  gtk_widget_set_tooltip_text(maximize, "Maximizar / restaurar");
+  gtk_widget_set_tooltip_text(close, "Cerrar");
+  // Evita que los botones de la cabecera roben el foco al abrir la app.
+  gtk_widget_set_can_focus(minimize, FALSE);
+  gtk_widget_set_can_focus(maximize, FALSE);
+  gtk_widget_set_can_focus(close, FALSE);
+  g_signal_connect_swapped(minimize, "clicked", G_CALLBACK(gtk_window_iconify), window);
+  g_signal_connect_swapped(maximize, "clicked", G_CALLBACK(toggle_maximize), window);
+  g_signal_connect_swapped(close, "clicked", G_CALLBACK(gtk_window_close), window);
+  gtk_box_pack_start(GTK_BOX(controls), minimize, FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(controls), maximize, FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(controls), close, FALSE, TRUE, 0);
+  gtk_header_bar_pack_end(header_bar, controls);
+  gtk_widget_show_all(controls);
+  gtk_widget_show(GTK_WIDGET(header_bar));
+  gtk_window_set_title(window, "KIO SBS");
+  gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+  gtk_window_set_focus_on_map(window, TRUE);
 
   // Load window icon from bundle data dir (installed by CMake).
   g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
@@ -77,6 +101,7 @@ static void my_application_activate(GApplication* application) {
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
+  g_signal_connect(window, "focus-in-event", G_CALLBACK(ensure_view_focus_cb), view);
 
   // Show the window when Flutter renders.
   // Requires the view to be realized so we can start rendering.
@@ -85,8 +110,6 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
-
-  gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
 // Implements GApplication::local_command_line.

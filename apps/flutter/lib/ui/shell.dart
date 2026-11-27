@@ -9,6 +9,7 @@ import '../data/local_db.dart';
 import '../pages/catalog.dart';
 import '../services/session.dart';
 import '../services/sync_service.dart';
+import '../services/updater.dart';
 import '../theme/kio_theme.dart';
 import 'widgets.dart';
 
@@ -274,6 +275,76 @@ class _NavItem extends StatelessWidget {
       );
 }
 
+// ------------------------------------------------------------------ notificaciones
+
+class _NotificationsButton extends StatelessWidget {
+  const _NotificationsButton({required this.onOpenSync});
+  final VoidCallback onOpenSync;
+
+  @override
+  Widget build(BuildContext context) {
+    final up = context.watch<UpdateService>();
+    final notices = up.notices;
+    return IconButton(
+      tooltip: 'Notificaciones',
+      onPressed: () => showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(children: [Icon(Icons.notifications_none), SizedBox(width: 10), Text('Notificaciones')]),
+          content: SizedBox(
+            width: 420,
+            child: notices.isEmpty
+                ? const ListTile(title: Text('No hay notificaciones nuevas'))
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final n in notices)
+                        Card(
+                          child: ListTile(
+                            leading: const CircleAvatar(child: Icon(LucideIcons.package, size: 18)),
+                            title: Text(n.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                            subtitle: Text(n.body ?? ''),
+                            onTap: () async {
+                              final nav = Navigator.of(ctx);
+                              nav.pop();
+                              if (up.canInstall) {
+                                if (await confirm(context, 'Instalar actualización', 'Se instalará ${n.title} y el POS se reiniciará.')) {
+                                  await up.installAndRestart();
+                                }
+                              } else {
+                                onOpenSync();
+                              }
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+            if (up.canInstall)
+              FilledButton.icon(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  if (await confirm(context, 'Instalar actualización', 'El POS se reiniciará con la nueva versión.')) {
+                    await up.installAndRestart();
+                  }
+                },
+                icon: const Icon(LucideIcons.download, size: 15),
+                label: const Text('Actualizar POS'),
+              ),
+          ],
+        ),
+      ),
+      icon: Badge(
+        isLabelVisible: notices.isNotEmpty,
+        label: Text('${notices.length}'),
+        child: const Icon(Icons.notifications_none, size: 20),
+      ),
+    );
+  }
+}
+
 // ------------------------------------------------------------------ barra superior
 
 class _TopBar extends StatelessWidget {
@@ -300,6 +371,8 @@ class _TopBar extends StatelessWidget {
           Flexible(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: Kio.muted), overflow: TextOverflow.ellipsis)),
         ],
         const Spacer(),
+        _NotificationsButton(onOpenSync: () => onOpen(kModules.firstWhere((m) => m.key == 'sync'))),
+        const SizedBox(width: 10),
         SyncPill(onTap: () => onOpen(kModules.firstWhere((m) => m.key == 'sync'))),
         const SizedBox(width: 10),
         if (!narrow) Text(s.company?.name.toUpperCase() ?? '', style: const TextStyle(color: Kio.muted, fontWeight: FontWeight.w600, fontSize: 13)),

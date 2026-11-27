@@ -1,7 +1,7 @@
 import { ArrowLeft, Ban, Banknote, CheckCircle2, FilePenLine, Package, Plus, Printer, RotateCcw, Save, Search, Trash2, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, Field, IconButton, IconTile, ICON, Input, Modal, NameCell, PageHeader, Select, Spinner, Textarea, useFeedback } from '../../components/ui'
+import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, Field, IconButton, IconTile, ICON, Input, Modal, NameCell, PageHeader, SearchInput, Select, Spinner, Textarea, useFeedback } from '../../components/ui'
 import { useAuth } from '../../lib/auth'
 import { date, dateTime, money, qty, toNum } from '../../lib/format'
 import { addDays, docNumber, nowLocal, saveRecord, saveRecords, today, uuid, type Change } from '../../lib/records'
@@ -160,6 +160,7 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
   const [nc, setNc] = useState({ name: '', doc_number: '', phone: '', email: '' })
   const [savingNc, setSavingNc] = useState(false)
   const [extraCustomers, setExtraCustomers] = useState<CreditPartner[]>([])
+  const [customerSearch, setCustomerSearch] = useState('')
   const [lines, setLines] = useState<EditLine[]>(() =>
     (initial?.lines ?? []).map((l) => ({ key: l.id, productId: l.productId, name: l.name, qty: String(l.qty), price: String(l.price), discount: String(l.discountPct || 0), taxRate: toNum(l.taxRate) })),
   )
@@ -187,6 +188,17 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
     for (const c of extraCustomers) if (!merged.some((p) => p.id === c.id)) merged.unshift(c)
     return merged
   }, [customers.data, initial, extraCustomers])
+  const customerSearchNorm = customerSearch.trim().toLowerCase()
+  const visibleCustomers = useMemo(() => {
+    if (!customerSearchNorm) return customerList
+    return customerList.filter((p) =>
+      (p.name ?? '').toLowerCase().includes(customerSearchNorm) || (p.docNumber ?? '').toLowerCase().includes(customerSearchNorm),
+    )
+  }, [customerList, customerSearchNorm])
+  const selectCustomers = useMemo(() => {
+    const selected = customerList.find((p) => p.id === partnerId)
+    return selected && !visibleCustomers.some((p) => p.id === selected.id) ? [selected, ...visibleCustomers] : visibleCustomers
+  }, [customerList, partnerId, visibleCustomers])
   const partner = customerList.find((p) => p.id === partnerId) ?? null
 
   // Info de inventario de las líneas de un borrador existente
@@ -230,7 +242,7 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
       const id = uuid()
       const name = nc.name.trim()
       const doc_number = nc.doc_number.trim() || null
-      await saveRecord('partners', { id, name, doc_number, phone: nc.phone.trim() || null, email: nc.email.trim() || null, kind: 'cliente', active: 1 })
+      await saveRecord('partners', { id, name, doc_number, phone: nc.phone.trim() || null, email: nc.email.trim() || null, is_customer: 1, is_supplier: 0, active: 1 })
       setExtraCustomers((xs) => [{ id, name, docNumber: doc_number, creditLimit: 0, paymentTermDays: 0, blocked: false, balance: 0, overdue: 0, availableCredit: null }, ...xs])
       setPartnerId(id)
       toast('Cliente creado')
@@ -281,6 +293,25 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
     }
     const confirm = status === 'confirmada'
     if (confirm && ids.length > 0 && !loadedMeta.data) return 'Cargando el inventario de los productos, intenta de nuevo en un momento'
+    if (confirm) {
+      const need = new Map<string, { qty: number; name: string }>()
+      for (const l of lines) {
+        if (!l.productId || !meta[l.productId]?.trackStock) continue
+        const prev = need.get(l.productId)
+        if (prev) prev.qty += num(l.qty)
+        else need.set(l.productId, { qty: num(l.qty), name: l.name })
+      }
+      for (const [productId, n] of need) {
+        const available = siteId
+          ? (siteStocksQ.data?.warehouseStocks ?? [])
+              .filter((s) => s.productId === productId && s.warehouseId && toNum(s.qty) > 0)
+              .reduce((sum, s) => sum + toNum(s.qty), 0)
+          : toNum(meta[productId]?.stock)
+        if (n.qty > available + 1e-6) {
+          return `Stock insuficiente para "${n.name}": hay ${qty(available)}, se piden ${qty(n.qty)}${siteId ? ' en la sede seleccionada' : ''}`
+        }
+      }
+    }
     if (confirm && mode === 'credito') {
       if (problem) return problem
       if (!dueDate) return 'Indica la fecha de vencimiento'
@@ -411,18 +442,24 @@ function Editor({ initial }: { initial: SaleDoc | null }) {
                 </Select>
               </Field>
               <Field label="Cliente" hint={customers.error ? customers.error.message : mode === 'credito' ? 'Obligatorio para vender a crédito' : 'Sin cliente se registra como consumidor final'}>
-                <div className="flex gap-2">
-                  <Select value={partnerId} onChange={(e) => changePartner(e.target.value)} className="flex-1">
-                    <option value="">Sin cliente (consumidor final)</option>
-                    {customerList.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                        {p.docNumber ? ` · ${p.docNumber}` : ''}
-                        {p.blocked ? ' (bloqueado)' : ''}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button variant="secondary" icon={Plus} onClick={() => setNewCust(true)}>Nuevo</Button>
+                <div className="space-y-2">
+                  <SearchInput value={customerSearch} onChange={setCustomerSearch} placeholder="Buscar cliente por nombre o documento…" />
+                  <div className="flex gap-2">
+                    <Select value={partnerId} onChange={(e) => changePartner(e.target.value)} className="flex-1">
+                      <option value="">Sin cliente (consumidor final)</option>
+                      {selectCustomers.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                          {p.docNumber ? ` · ${p.docNumber}` : ''}
+                          {p.blocked ? ' (bloqueado)' : ''}
+                        </option>
+                      ))}
+                    </Select>
+                    <Button variant="secondary" icon={Plus} onClick={() => setNewCust(true)}>Nuevo</Button>
+                  </div>
+                  <p className="text-xs text-muted">
+                    {customers.loading ? 'Cargando clientes…' : `${visibleCustomers.length} de ${customerList.length} clientes`}
+                  </p>
                 </div>
               </Field>
               <div className="grid grid-cols-2 gap-3">

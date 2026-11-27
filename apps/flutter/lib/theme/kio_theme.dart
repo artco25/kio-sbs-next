@@ -50,6 +50,70 @@ class Kio {
   /// Tinte suave para fondos de íconos, pastillas y chips.
   static Color tint(Color c, [double a = 0.12]) => c.withValues(alpha: a);
 
+  // ---- Caja POS (modo oscuro, derivado del índigo de marca)
+  static const posBg = Color(0xFF12102B);
+  static const posPanel = Color(0xFF1B1940);
+  static const posCard = Color(0xFF26234F);
+  static const posBorder = Color(0xFF38356B);
+  static const posText = Color(0xFFF1F2FF);
+  static const posMuted = Color(0xFFA9ADD6);
+
+  /// Colores pastel (tomados de la paleta índigo + acentos suaves) para las categorías.
+  static const posPastels = [
+    Color(0xFFE0E7FF), // periwinkle
+    Color(0xFFE6D7F5), // lila
+    Color(0xFFC9DDF2), // celeste
+    Color(0xFFD5D3F7), // índigo claro
+    Color(0xFFF8C9DD), // rosa
+    Color(0xFFD3EFE3), // menta
+    Color(0xFFF6DDC8), // durazno
+    Color(0xFFC7E8E4), // turquesa suave
+  ];
+
+  static ThemeData posTheme() {
+    final base = theme();
+    final scheme = ColorScheme.fromSeed(seedColor: navy, brightness: Brightness.dark, primary: brandSecondary, surface: posPanel, error: danger);
+    final outline = OutlineInputBorder(borderRadius: BorderRadius.circular(radiusSm), borderSide: const BorderSide(color: posBorder));
+    return base.copyWith(
+      brightness: Brightness.dark,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: posBg,
+      dividerColor: posBorder,
+      dividerTheme: const DividerThemeData(color: posBorder, space: 1, thickness: 1),
+      textTheme: base.textTheme.copyWith(
+        bodyMedium: const TextStyle(fontSize: 14, color: posText),
+        bodySmall: const TextStyle(fontSize: 12, color: posMuted),
+        titleMedium: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: posText),
+      ),
+      inputDecorationTheme: base.inputDecorationTheme.copyWith(
+        fillColor: posCard,
+        hintStyle: const TextStyle(color: posMuted, fontSize: 14),
+        labelStyle: const TextStyle(color: posMuted, fontSize: 14),
+        prefixIconColor: posMuted,
+        border: outline,
+        enabledBorder: outline,
+        focusedBorder: outline.copyWith(borderSide: const BorderSide(color: cyan, width: 1.4)),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: brandSecondary,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: posCard,
+          disabledForegroundColor: posMuted,
+          minimumSize: const Size(0, 42),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, fontFamily: 'Inter'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radiusSm)),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: posText)),
+      textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: cyan, textStyle: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'Inter'))),
+      checkboxTheme: CheckboxThemeData(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)), side: const BorderSide(color: posMuted, width: 1.4)),
+      dialogTheme: DialogThemeData(backgroundColor: posPanel, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
+      chipTheme: ChipThemeData(backgroundColor: posCard, side: const BorderSide(color: posBorder), labelStyle: const TextStyle(color: posText)),
+    );
+  }
+
   static ThemeData theme() {
     final scheme = ColorScheme.fromSeed(
       seedColor: navy,
@@ -134,6 +198,41 @@ class Kio {
       ),
     );
   }
+}
+
+/// Paleta de la caja POS: claro (por defecto) u oscuro.
+class PosPal {
+  const PosPal({required this.dark, required this.bg, required this.panel, required this.card, required this.border, required this.text, required this.muted, required this.accent, required this.pill, required this.pillText, required this.cta});
+  final bool dark;
+  final Color bg, panel, card, border, text, muted, accent, pill, pillText, cta;
+
+  static const light = PosPal(
+    dark: false,
+    bg: Color(0xFFF4F5FB),
+    panel: Colors.white,
+    card: Colors.white,
+    border: Color(0xFFE3E5F3),
+    text: Kio.navyDark,
+    muted: Kio.muted,
+    accent: Kio.navy,
+    pill: Kio.navyDark,
+    pillText: Colors.white,
+    cta: Kio.navyDark,
+  );
+  static const darkPal = PosPal(
+    dark: true,
+    bg: Kio.posBg,
+    panel: Kio.posPanel,
+    card: Kio.posCard,
+    border: Kio.posBorder,
+    text: Kio.posText,
+    muted: Kio.posMuted,
+    accent: Kio.cyan,
+    pill: Kio.posCard,
+    pillText: Kio.posText,
+    cta: Kio.green,
+  );
+  static PosPal of(BuildContext c) => Theme.of(c).brightness == Brightness.dark ? darkPal : light;
 }
 
 /// Las 4 suites de KIO SBS (+ inicio y sistema), con su color e ícono Lucide.

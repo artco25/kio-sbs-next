@@ -1,14 +1,15 @@
-import { Download, FileSpreadsheet, ListFilter, Package, Pencil, Percent, Plus, SlidersHorizontal, Tags, TriangleAlert, Upload, Warehouse } from 'lucide-react'
+import { Download, FileSpreadsheet, ListFilter, Package, Pencil, Percent, Plus, SlidersHorizontal, Tags, Trash2, TriangleAlert, Upload, Warehouse } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { KpiCard } from '../../components/charts'
 import { RecordForm, type FieldDef } from '../../components/RecordForm'
-import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, FilterSelect, IconButton, IconTile, Modal, NameCell, PageHeader, SearchInput, StatusBadge, Toolbar, type Column } from '../../components/ui'
+import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, FilterSelect, IconButton, IconTile, Modal, NameCell, PageHeader, SearchInput, StatusBadge, Toolbar, useFeedback, type Column } from '../../components/ui'
 import { useAuth } from '../../lib/auth'
 import { getCurrentSuite } from '../../lib/suites'
 import { date, money, pct, qty } from '../../lib/format'
-import { exportCsv, saveRecord, saveRecords, today, uuid, type Row } from '../../lib/records'
+import { deleteRecord, exportCsv, saveRecord, saveRecords, today, uuid, type Row } from '../../lib/records'
+import { gql } from '../../lib/gql'
 import { useGql } from '../../lib/useGql'
 import {
   CategoryBadge,
@@ -39,6 +40,9 @@ interface Data {
   categories: { id: string; name: string | null; color: string | null; productCount: number }[]
   stockMoves: Move[]
   warehouses: WH[]
+  warehouseStocks: { id: string; warehouseId: string; productId: string; qty: number; active: boolean }[]
+  tags: { id: string; name: string | null; color: string | null; active: boolean }[]
+  productTags: { id: string; productId: string; tagId: string }[]
 }
 
 const Q = `query{
@@ -46,6 +50,9 @@ const Q = `query{
   categories{ id name color productCount }
   stockMoves(limit:500){ id productId qty date }
   warehouses{ id name siteId active isDefault }
+  warehouseStocks{ id warehouseId productId qty active }
+  tags{ id name color active }
+  productTags{ id productId tagId }
 }`
 
 type StatusFilter = 'todos' | 'activos' | 'inactivos' | 'bajo'
@@ -84,12 +91,7 @@ const toRow = (p: Prod): Row => ({
   cum: p.cum ?? '',
   color: p.color ?? '',
   flavor: p.flavor ?? '',
-  line1: p.line1 ?? '',
-  line2: p.line2 ?? '',
-  line3: p.line3 ?? '',
-  line4: p.line4 ?? '',
-  line5: p.line5 ?? '',
-  line6: p.line6 ?? '',
+  tag_ids: (p.tags ?? []).map((t) => t.id),
 })
 
 function MarginText({ p }: { p: Prod }) {
@@ -100,11 +102,13 @@ function MarginText({ p }: { p: Prod }) {
 
 export default function Products() {
   const { can } = useAuth()
+  const { toast, confirm } = useFeedback()
   const canWrite = can('products', 'write')
   const canCreate = canWrite && getCurrentSuite() !== 'pos'
   const canStock = can('stock_moves', 'write')
   const [params, setParams] = useSearchParams()
   const { data, loading, error } = useGql<Data>(Q)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const [q, setQ] = useState('')
   const [status, setStatus] = useState<StatusFilter>('todos')
@@ -117,10 +121,12 @@ export default function Products() {
   const [adjust, setAdjust] = useState<{ mode: StockMode; product: Prod } | null>(null)
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [importPreview, setImportPreview] = useState<{ changes: { table: string; row: Row }[]; summary: { total: number; newCount: number; updateCount: number; stockMoves: number; newCategories: number; newTags: number; errors: string[]; warnings: string[] } } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const items = data?.products.items ?? []
   const cats = data?.categories ?? []
+  const allTags = data?.tags ?? []
   const catOptions = useCategoryOptions(cats)
 
   const totals = useMemo(() => inventoryTotals(items), [items])
@@ -170,12 +176,7 @@ export default function Products() {
     { key: 'flavor', label: 'Sabor' },
     { key: 'weight', label: 'Peso', type: 'number', hint: 'Ej. kg, g (según tu unidad interna)' },
     { key: 'volume', label: 'Volumen', type: 'number', hint: 'Ej. L, ml (según tu unidad interna)' },
-    { key: 'line1', label: 'Línea 1 (subcategoría)' },
-    { key: 'line2', label: 'Línea 2' },
-    { key: 'line3', label: 'Línea 3' },
-    { key: 'line4', label: 'Línea 4' },
-    { key: 'line5', label: 'Línea 5' },
-    { key: 'line6', label: 'Línea 6' },
+    { key: 'tag_ids', label: 'Etiquetas', type: 'multiselect', full: true, skipSave: true, options: allTags.filter((t) => t.active).map((t) => ({ value: t.id, label: t.name ?? t.id })), hint: 'Selecciona una o varias etiquetas para clasificar el producto.' },
     ...(!form.initial ? [
       { key: 'initial_warehouse_id', label: 'Bodega inicial', type: 'select' as const, options: [{ value: '', label: 'Sin asignar ahora' }, ...whOptionsForCreate], hint: 'Opcional: asigna el producto a una bodega al crearlo.' },
       { key: 'initial_qty', label: 'Existencia inicial en bodega', type: 'number' as const, defaultValue: 0, hint: 'Si indicas bodega, se crea la existencia inicial.' },
@@ -245,8 +246,7 @@ export default function Products() {
       'nombre', 'sku', 'codigo_barras', 'categoria', 'unidad', 'precio_sin_iva', 'costo', 'iva', 'stock_minimo',
       'controla_inventario', 'disponible_pos', 'activo',
       'descripcion_corta', 'descripcion', 'marca', 'peso', 'volumen', 'cum', 'color', 'sabor',
-      'linea1', 'linea2', 'linea3', 'linea4', 'linea5', 'linea6',
-      'bodega_codigo', 'existencia_bodega',
+      'etiquetas', 'bodega_codigo', 'existencia_bodega',
     ]
     const ws = XLSX.utils.json_to_sheet([
       {
@@ -270,12 +270,7 @@ export default function Products() {
         cum: '',
         color: 'Amarillo',
         sabor: 'Neutro',
-        linea1: 'Aceites',
-        linea2: '',
-        linea3: '',
-        linea4: '',
-        linea5: '',
-        linea6: '',
+        etiquetas: 'Aceites|Cocina',
         bodega_codigo: (data?.warehouses ?? []).find((w) => w.isDefault)?.id?.slice(0, 8) ?? '',
         existencia_bodega: 10,
       },
@@ -295,6 +290,16 @@ export default function Products() {
     const wsWh = XLSX.utils.json_to_sheet(whs.length ? whs : [{ codigo_bodega: '', codigo_corto: '', nombre: 'No hay bodegas creadas', sede: '', activa: '', predeterminada: '' }], { header: ['codigo_bodega', 'codigo_corto', 'nombre', 'sede', 'activa', 'predeterminada'] })
     wsWh['!cols'] = [{ wch: 38 }, { wch: 14 }, { wch: 24 }, { wch: 38 }, { wch: 10 }, { wch: 14 }]
     XLSX.utils.book_append_sheet(wb, wsWh, 'Bodegas')
+
+    const tagRows = (data?.tags ?? []).filter((t) => t.active).map((t) => ({ id: t.id, nombre: t.name ?? '', color: t.color ?? '' }))
+    const wsTags = XLSX.utils.json_to_sheet(tagRows.length ? tagRows : [{ id: '', nombre: 'Ejemplo etiqueta', color: '' }], { header: ['id', 'nombre', 'color'] })
+    wsTags['!cols'] = [{ wch: 38 }, { wch: 28 }, { wch: 14 }]
+    XLSX.utils.book_append_sheet(wb, wsTags, 'Etiquetas')
+
+    const catRows = (data?.categories ?? []).map((c) => ({ id: c.id, nombre: c.name ?? '', color: c.color ?? '' }))
+    const wsCats = XLSX.utils.json_to_sheet(catRows.length ? catRows : [{ id: '', nombre: 'Ejemplo categoría', color: '' }], { header: ['id', 'nombre', 'color'] })
+    wsCats['!cols'] = [{ wch: 38 }, { wch: 28 }, { wch: 14 }]
+    XLSX.utils.book_append_sheet(wb, wsCats, 'Categorias')
     XLSX.writeFile(wb, 'plantilla-productos-kio.xlsx')
   }
 
@@ -310,77 +315,120 @@ export default function Products() {
       const catByName = new Map(cats.map((c) => [(c.name ?? '').trim().toLowerCase(), c.id]))
       const bySku = new Map(items.filter((p) => p.sku).map((p) => [String(p.sku).trim().toLowerCase(), p.id]))
       const byBarcode = new Map(items.filter((p) => p.barcode).map((p) => [String(p.barcode).trim(), p.id]))
-      const bool = (v: unknown) => {
-        const s = String(v ?? '').trim().toLowerCase()
-        return s === 'si' || s === 'sí' || s === '1' || s === 'true' || s === 'x' ? 1 : 0
-      }
-      const num = (v: unknown) => {
-        const n = Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.'))
-        return Number.isFinite(n) ? n : 0
-      }
+      const bool = (v: unknown) => { const s = String(v ?? '').trim().toLowerCase(); return s === 'si' || s === 'sí' || s === '1' || s === 'true' || s === 'x' ? 1 : 0 }
+      const num = (v: unknown) => { const n = Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
       const whs = data?.warehouses ?? []
-      const findWh = (code: string) => {
-        const c = code.trim().toLowerCase()
-        if (!c) return null
-        return whs.find((w) => w.id.toLowerCase() === c || w.id.slice(0, 8).toLowerCase() === c || (w.name ?? '').trim().toLowerCase() === c) ?? null
-      }
+      const findWh = (code: string) => { const c = code.trim().toLowerCase(); if (!c) return null; return whs.find((w) => w.id.toLowerCase() === c || w.id.slice(0, 8).toLowerCase() === c || (w.name ?? '').trim().toLowerCase() === c) ?? null }
+      const wsByKey = new Map((data?.warehouseStocks ?? []).map((s) => [`${s.productId}:${s.warehouseId}`, Number(s.qty || 0)]))
+      const tagByName = new Map((data?.tags ?? []).map((t) => [(t.name ?? '').trim().toLowerCase(), t.id]))
+      const ptByProduct = new Map<string, { id: string; tagId: string }[]>()
+      for (const pt of data?.productTags ?? []) { const arr = ptByProduct.get(pt.productId) ?? []; arr.push({ id: pt.id, tagId: pt.tagId }); ptByProduct.set(pt.productId, arr) }
       const changes: { table: string; row: Row }[] = []
-      for (const r of raw) {
+      const errors: string[] = []
+      const warnings: string[] = []
+      const seenSku = new Set<string>()
+      const seenBarcode = new Set<string>()
+      let newCount = 0, updateCount = 0, stockMoves = 0, newCategories = 0, newTags = 0
+      for (let i = 0; i < raw.length; i++) {
+        const r = raw[i]
         const name = String(r.nombre ?? r.name ?? '').trim()
-        if (!name) continue
+        if (!name) { warnings.push(`Fila ${i + 2}: sin nombre, omitida.`); continue }
         const catName = String(r.categoria ?? r.category ?? '').trim().toLowerCase()
         const sku = String(r.sku ?? '').trim() || null
         const barcode = String(r.codigo_barras ?? r.barcode ?? '').trim() || null
+        if (sku) { const k = sku.toLowerCase(); if (seenSku.has(k)) warnings.push(`Fila ${i + 2}: SKU ${sku} duplicado en el archivo.`); seenSku.add(k) }
+        if (barcode) { if (seenBarcode.has(barcode)) warnings.push(`Fila ${i + 2}: código de barras ${barcode} duplicado en el archivo.`); seenBarcode.add(barcode) }
         const existingId = String(r.id ?? '').trim() || (sku ? bySku.get(sku.toLowerCase()) : undefined) || (barcode ? byBarcode.get(barcode) : undefined)
+        if (existingId) updateCount++; else newCount++
+        let categoryId = catName ? (catByName.get(catName) ?? '') : ''
+        if (catName && !categoryId) {
+          const catId = uuid()
+          const catLabel = String(r.categoria ?? r.category ?? '').trim()
+          changes.push({ table: 'categories', row: { id: catId, name: catLabel, active: 1 } })
+          catByName.set(catName, catId)
+          categoryId = catId
+          newCategories++
+        }
         const id = existingId || uuid()
         const row: Row = {
-          id,
-          name,
-          sku,
-          barcode,
-          category_id: catByName.get(catName) ?? '',
+          id, name, sku, barcode, category_id: categoryId,
           unit: String(r.unidad ?? r.unit ?? 'unidad').trim() || 'unidad',
-          price: num(r.precio_sin_iva ?? r.price),
-          cost: num(r.costo ?? r.cost),
-          tax_rate: num(r.iva ?? r.tax_rate ?? 0.19),
-          min_stock: num(r.stock_minimo ?? r.min_stock),
-          track_stock: bool(r.controla_inventario ?? r.track_stock ?? 1),
-          available_pos: bool(r.disponible_pos ?? r.available_pos ?? 1),
-          active: bool(r.activo ?? r.active ?? 1),
+          price: num(r.precio_sin_iva ?? r.price), cost: num(r.costo ?? r.cost), tax_rate: num(r.iva ?? r.tax_rate ?? 0.19),
+          min_stock: num(r.stock_minimo ?? r.min_stock), track_stock: bool(r.controla_inventario ?? r.track_stock ?? 1),
+          available_pos: bool(r.disponible_pos ?? r.available_pos ?? 1), active: bool(r.activo ?? r.active ?? 1),
           description: String(r.descripcion ?? r.description ?? '').trim() || null,
           short_description: String(r.descripcion_corta ?? r.short_description ?? '').trim() || null,
-          brand: String(r.marca ?? r.brand ?? '').trim() || null,
-          weight: num(r.peso ?? r.weight),
-          volume: num(r.volumen ?? r.volume),
-          cum: String(r.cum ?? '').trim() || null,
-          color: String(r.color ?? '').trim() || null,
-          flavor: String(r.sabor ?? r.flavor ?? '').trim() || null,
-          line1: String(r.linea1 ?? r.line1 ?? '').trim() || null,
-          line2: String(r.linea2 ?? r.line2 ?? '').trim() || null,
-          line3: String(r.linea3 ?? r.line3 ?? '').trim() || null,
-          line4: String(r.linea4 ?? r.line4 ?? '').trim() || null,
-          line5: String(r.linea5 ?? r.line5 ?? '').trim() || null,
-          line6: String(r.linea6 ?? r.line6 ?? '').trim() || null,
+          brand: String(r.marca ?? r.brand ?? '').trim() || null, weight: num(r.peso ?? r.weight), volume: num(r.volumen ?? r.volume),
+          cum: String(r.cum ?? '').trim() || null, color: String(r.color ?? '').trim() || null, flavor: String(r.sabor ?? r.flavor ?? '').trim() || null,
         }
         changes.push({ table: 'products', row })
+        const rawTags = String(r.etiquetas ?? r.tags ?? [r.linea1, r.linea2, r.linea3, r.linea4, r.linea5, r.linea6, r.line1, r.line2, r.line3, r.line4, r.line5, r.line6].filter(Boolean).join('|') ?? '').trim()
+        if (rawTags) {
+          const tagNames = rawTags.split(/[|,;\n]+/).map((s) => s.trim()).filter(Boolean)
+          const wantTagIds = new Set<string>()
+          for (const tn of tagNames) {
+            const k = tn.toLowerCase()
+            let tid = tagByName.get(k)
+            if (!tid) { tid = uuid(); tagByName.set(k, tid); changes.push({ table: 'tags', row: { id: tid, name: tn, active: 1 } }); newTags++ }
+            wantTagIds.add(tid)
+          }
+          const curPts = ptByProduct.get(id) ?? []
+          for (const pt of curPts) if (!wantTagIds.has(pt.tagId)) changes.push({ table: 'product_tags', row: { id: pt.id, deleted: 1 } })
+          const curTagIds = new Set(curPts.map((p) => p.tagId))
+          for (const tid of wantTagIds) if (!curTagIds.has(tid)) changes.push({ table: 'product_tags', row: { id: uuid(), product_id: id, tag_id: tid } })
+        }
         const whCode = String(r.bodega_codigo ?? r.warehouse_code ?? r.bodega ?? '').trim()
-        const whQty = num(r.existencia_bodega ?? r.stock_bodega ?? r.existencia ?? r.stock ?? 0)
+        const whQtyRaw = r.existencia_bodega ?? r.stock_bodega ?? r.existencia ?? r.stock
+        const whQtyProvided = whQtyRaw !== '' && whQtyRaw !== null && whQtyRaw !== undefined
+        const whQty = whQtyProvided ? num(whQtyRaw) : 0
         const wh = findWh(whCode)
-        if (wh && whQty !== 0 && !existingId) {
-          changes.push({ table: 'stock_moves', row: { id: uuid(), product_id: id, warehouse_id: wh.id, qty: whQty, kind: 'ajuste', date: today(), unit_cost: num(r.costo ?? r.cost), notes: 'Importación masiva' } })
+        if (whCode && !wh) warnings.push(`Fila ${i + 2}: bodega "${whCode}" no encontrada.`)
+        if (wh && whQtyProvided) {
+          const key = `${id}:${wh.id}`
+          const current = wsByKey.get(key) ?? 0
+          const delta = existingId ? (whQty - current) : whQty
+          if (delta !== 0) {
+            changes.push({ table: 'stock_moves', row: { id: uuid(), product_id: id, warehouse_id: wh.id, qty: delta, kind: 'ajuste', date: today(), unit_cost: num(r.costo ?? r.cost), notes: existingId ? 'Ajuste por importación masiva' : 'Importación masiva' } })
+            wsByKey.set(key, current + delta)
+            stockMoves++
+          }
         }
       }
       if (!changes.length) throw new Error('No se encontraron productos válidos (columna "nombre").')
-      await saveRecords(changes)
-      const prodCount = changes.filter((c) => c.table === 'products').length
-      setImportMsg({ ok: true, text: `Se importaron ${prodCount} producto(s) correctamente.` })
-      window.dispatchEvent(new Event('kio:invalidate'))
+      setImportPreview({ changes, summary: { total: raw.length, newCount, updateCount, stockMoves, newCategories, newTags, errors, warnings } })
     } catch (e: any) {
       setImportMsg({ ok: false, text: e?.message || 'Error importando archivo.' })
     } finally {
       setImporting(false)
       if (fileRef.current) fileRef.current.value = ''
     }
+  }
+
+  const confirmImport = async () => {
+    if (!importPreview) return
+    setImporting(true)
+    try {
+      await saveRecords(importPreview.changes)
+      const prodCount = importPreview.changes.filter((c) => c.table === 'products').length
+      setImportMsg({ ok: true, text: `Se importaron ${prodCount} producto(s) correctamente.` })
+      setImportPreview(null)
+      window.dispatchEvent(new Event('kio:invalidate'))
+    } catch (e: any) {
+      setImportMsg({ ok: false, text: e?.message || 'Error importando archivo.' })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const bulkDelete = async () => {
+    const ids = Array.from(selectedIds)
+    if (!ids.length) return
+    if (!(await confirm({ title: 'Eliminar productos', message: `Se eliminarán ${ids.length} producto(s) seleccionados. Esta acción los ocultará de todos los módulos.`, confirmLabel: 'Eliminar', danger: true }))) return
+    try {
+      await saveRecords(ids.map((id) => ({ table: 'products', row: { id, deleted: 1 } })))
+      toast(`${ids.length} producto(s) eliminados`)
+      setSelectedIds(new Set())
+    } catch (e) { toast((e as Error).message, 'error') }
   }
 
   const detail = items.find((p) => p.id === detailId) ?? null
@@ -429,7 +477,7 @@ export default function Products() {
         </div>
 
         <Card padded={false} className="pt-5">
-          <Toolbar>
+          <Toolbar actions={canWrite && selectedIds.size > 0 ? <Button variant="danger" icon={Trash2} onClick={bulkDelete}>Eliminar ({selectedIds.size})</Button> : undefined}>
             <SearchInput value={q} onChange={setQ} placeholder="Buscar por nombre, SKU o código…" />
             <FilterSelect icon={Tags} value={cat} onChange={setCat} options={catOptions} />
             <FilterSelect icon={ListFilter} value={status} onChange={setStatus} options={STATUS_OPTIONS} />
@@ -437,6 +485,8 @@ export default function Products() {
           <DataTable<Prod>
             columns={columns}
             rows={rows}
+            selected={canWrite ? selectedIds : undefined}
+            onSelect={canWrite ? setSelectedIds : undefined}
             loading={loading}
             onRowClick={(p) => setDetailId(p.id)}
             footer={rows.length ? `${qty(rows.length)} de ${qty(items.length)} productos` : undefined}
@@ -467,7 +517,21 @@ export default function Products() {
           if (Number(v.price) < 0 || Number(v.cost) < 0 || Number(v.min_stock) < 0) return 'Precio, costo y stock mínimo no pueden ser negativos.'
           return null
         }}
-        onSaved={async (id, _merged) => {
+        onSaved={async (id, _merged, allValues) => {
+          try {
+            const selectedTagIds = Array.isArray(allValues?.tag_ids) ? allValues!.tag_ids.map(String) : []
+            const current = form.initial
+              ? await gql<{ productTags: { id: string; tagId: string }[] }>(`query($id:ID!){ productTags(productId:$id){ id tagId } }`, { id })
+            : { productTags: [] as { id: string; tagId: string }[] }
+            const cur = current.productTags ?? []
+            const curIds = new Set(cur.map((t) => t.tagId))
+            const want = new Set(selectedTagIds)
+            const changes: { table: string; row: Row }[] = []
+            for (const pt of cur) if (!want.has(pt.tagId)) changes.push({ table: 'product_tags', row: { id: pt.id, deleted: 1 } })
+            for (const tagId of selectedTagIds) if (!curIds.has(tagId)) changes.push({ table: 'product_tags', row: { id: uuid(), product_id: id, tag_id: tagId } })
+            if (changes.length) await saveRecords(changes)
+          } catch { /* no bloquear guardado de producto */ }
+
           const init = initialStockRef.current
           initialStockRef.current = null
           if (!init?.warehouse_id || form.initial) return
@@ -488,16 +552,37 @@ export default function Products() {
           onClose={() => setDetailId(null)}
           onEdit={canWrite ? () => { setForm({ open: true, initial: toRow(detail) }); setDetailId(null) } : undefined}
           onAdjust={canStock && detail.trackStock ? () => setAdjust({ mode: 'entrada', product: detail }) : undefined}
+          onDelete={canWrite ? () => setDetailId(null) : undefined}
         />
       )}
+
+      <Modal open={!!importPreview} onClose={() => setImportPreview(null)} title="Validar importación" subtitle="Revisa el resumen antes de importar." size="lg"
+        footer={<><Button variant="secondary" onClick={() => setImportPreview(null)}>Cancelar</Button><Button loading={importing} onClick={confirmImport} disabled={!importPreview || importPreview.summary.errors.length > 0}>Confirmar importación</Button></>}>
+        {importPreview && (
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="rounded-xl bg-canvas p-3"><p className="text-muted">Filas</p><p className="text-lg font-bold">{importPreview.summary.total}</p></div>
+              <div className="rounded-xl bg-canvas p-3"><p className="text-muted">Nuevos</p><p className="text-lg font-bold text-success">{importPreview.summary.newCount}</p></div>
+              <div className="rounded-xl bg-canvas p-3"><p className="text-muted">Actualizar</p><p className="text-lg font-bold text-brand-700">{importPreview.summary.updateCount}</p></div>
+              <div className="rounded-xl bg-canvas p-3"><p className="text-muted">Categorías</p><p className="text-lg font-bold">{importPreview.summary.newCategories}</p></div>
+              <div className="rounded-xl bg-canvas p-3"><p className="text-muted">Etiquetas</p><p className="text-lg font-bold">{importPreview.summary.newTags}</p></div>
+              <div className="rounded-xl bg-canvas p-3"><p className="text-muted">Mov. stock</p><p className="text-lg font-bold">{importPreview.summary.stockMoves}</p></div>
+            </div>
+            {importPreview.summary.errors.length > 0 && <div className="rounded-xl border border-danger/20 bg-danger-soft p-3 text-danger"><p className="font-semibold mb-1">Errores</p><ul className="list-disc pl-5">{importPreview.summary.errors.slice(0,8).map((e,i)=><li key={i}>{e}</li>)}</ul></div>}
+            {importPreview.summary.warnings.length > 0 && <div className="rounded-xl border border-warning/20 bg-warning-soft p-3 text-warning"><p className="font-semibold mb-1">Advertencias ({importPreview.summary.warnings.length})</p><ul className="list-disc pl-5">{importPreview.summary.warnings.slice(0,10).map((w,i)=><li key={i}>{w}</li>)}{importPreview.summary.warnings.length > 10 && <li>…y {importPreview.summary.warnings.length - 10} más</li>}</ul></div>}
+            <p className="text-muted">Se crearán/actualizarán productos por coincidencia de ID, SKU o código de barras. Las categorías que no existan se crearán automáticamente. Si indicas bodega y existencia, se genera un ajuste por la diferencia contra la existencia actual de esa bodega.</p>
+          </div>
+        )}
+      </Modal>
 
       <StockActionModal open={!!adjust} onClose={() => setAdjust(null)} mode={adjust?.mode ?? 'entrada'} product={adjust?.product ?? null} products={items} warehouses={(data?.warehouses ?? []).filter((w) => w.active)} />
     </>
   )
 }
 
-function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; warehouses: WH[]; onClose: () => void; onEdit?: () => void; onAdjust?: () => void }) {
+function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust, onDelete }: { p: Prod; warehouses: WH[]; onClose: () => void; onEdit?: () => void; onAdjust?: () => void; onDelete?: () => void }) {
   const { can } = useAuth()
+  const { toast, confirm } = useFeedback()
   const canStockWrite = can('warehouse_stocks', 'write')
   const movesQ = useGql<{ stockMoves: Move[] }>(`query($id:ID!){ stockMoves(productId:$id, limit:20){ ${MOVE_FIELDS} } }`, { id: p.id })
   const stocksQ = useGql<{ warehouseStocks: WS[] }>(
@@ -540,6 +625,7 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
       }
       footer={
         <>
+          {onDelete && <Button variant="ghost" className="mr-auto text-danger hover:bg-danger-soft hover:text-danger" icon={Trash2} onClick={async () => { if (!(await confirm({ title: 'Eliminar producto', message: `Se eliminará "${p.name ?? 'este producto'}" de todos los módulos y dispositivos.`, confirmLabel: 'Eliminar', danger: true }))) return; try { await deleteRecord('products', p.id); toast('Producto eliminado'); onDelete() } catch (e) { toast((e as Error).message, 'error') } }}>Eliminar</Button>}
           <Button variant="secondary" onClick={onClose}>Cerrar</Button>
           {onAdjust && <Button variant="secondary" icon={SlidersHorizontal} onClick={onAdjust}>Ajustar stock</Button>}
           {onEdit && <Button icon={Pencil} onClick={onEdit}>Editar producto</Button>}
@@ -552,6 +638,7 @@ function ProductDetail({ p, warehouses, onClose, onEdit, onAdjust }: { p: Prod; 
         <Badge tone="neutral">IVA {pct(p.taxRate)}</Badge>
         <Badge tone={p.availablePos ? 'brand' : 'neutral'}>{p.availablePos ? 'Disponible en POS' : 'No está en POS'}</Badge>
         <Badge tone="neutral">Unidad: {unitLabel(p.unit)}</Badge>
+        {(p.tags ?? []).map((t) => <Badge key={t.id} tone="brand">{t.name ?? 'Etiqueta'}</Badge>)}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

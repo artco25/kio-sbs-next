@@ -7,14 +7,92 @@ import '../data/tables.g.dart';
 import '../services/graphql.dart';
 import '../services/session.dart';
 import '../services/sync_service.dart';
+import '../services/updater.dart';
 import '../theme/kio_theme.dart';
 import '../ui/format.dart';
 import '../ui/shell.dart';
 import '../ui/widgets.dart';
+import 'device_setup_page.dart';
 
 // =============================================================================
 // Sincronización: estado, pendientes, rechazos y equipos instalados
 // =============================================================================
+
+class _UpdateCard extends StatelessWidget {
+  const _UpdateCard({required this.up});
+
+  final UpdateService up;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!up.supported) return const SizedBox();
+    final label = switch (up.state) {
+      UpdateState.idle => 'Buscando actualizaciones…',
+      UpdateState.checking => 'Consultando servidor…',
+      UpdateState.available => 'Actualización disponible: ${up.latestVersion ?? ''}',
+      UpdateState.downloading => 'Descargando actualización…',
+      UpdateState.ready => up.blockedByCash ? 'Caja abierta: instalación pendiente' : 'Actualización lista para instalar',
+      UpdateState.upToDate => 'Estás en la última versión',
+      UpdateState.error => 'No se pudo verificar actualizaciones',
+    };
+    final color = switch (up.state) {
+      UpdateState.upToDate => Kio.green,
+      UpdateState.error => Kio.danger,
+      UpdateState.ready => up.blockedByCash ? Kio.warning : Kio.info,
+      UpdateState.available || UpdateState.downloading => Kio.warning,
+      _ => Kio.navy,
+    };
+    return KioCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(LucideIcons.package, size: 18, color: Kio.navy),
+          const SizedBox(width: 10),
+          Text('Actualización automática', style: Kio.h2()),
+          const SizedBox(width: 10),
+          StatusPill(label, color: color),
+        ]),
+        const SizedBox(height: 10),
+        Text('Versión instalada: ${up.currentVersion}${up.latestVersion != null ? '  •  Disponible: ${up.latestVersion}' : ''}', style: Kio.label),
+        if (up.notes != null && up.notes!.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(up.notes!, style: Kio.label),
+        ],
+        if (up.error != null) ...[
+          const SizedBox(height: 6),
+          Text(up.error!, style: const TextStyle(color: Kio.danger, fontSize: 12)),
+        ],
+        if (up.blockedByCash) ...[
+          const SizedBox(height: 6),
+          const Text('La actualización ya está descargada. Se instalará al abrir la app con la caja cerrada.', style: Kio.label),
+        ],
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          OutlinedButton.icon(
+            onPressed: up.state == UpdateState.checking || up.state == UpdateState.downloading ? null : up.check,
+            icon: const Icon(LucideIcons.refreshCw, size: 15),
+            label: const Text('Buscar actualización'),
+          ),
+          if (up.canInstall)
+            FilledButton.icon(
+              onPressed: () async {
+                if (await confirm(context, 'Instalar actualización', 'Se instalará la nueva versión y la app se reiniciará. Tus datos y la configuración del terminal se conservan.')) {
+                  await up.installAndRestart();
+                }
+              },
+              icon: const Icon(LucideIcons.download, size: 15),
+              label: const Text('Instalar y reiniciar'),
+            ),
+          if (up.blockedByCash)
+            FilledButton.icon(
+              onPressed: null,
+              icon: const Icon(LucideIcons.lock, size: 15),
+              label: const Text('Cierra la caja para actualizar'),
+            ),
+        ]),
+      ]),
+    );
+  }
+}
 
 class SyncPage extends StatelessWidget {
   const SyncPage({super.key});
@@ -22,6 +100,7 @@ class SyncPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sync = context.watch<SyncService>();
+    final up = context.watch<UpdateService>();
     final s = context.watch<Session>();
     final stateLabel = switch (sync.state) {
       SyncState.idle => 'En línea',
@@ -63,6 +142,8 @@ class SyncPage extends StatelessWidget {
         KpiCard(icon: LucideIcons.cloud, color: sync.pending > 0 ? Kio.warning : Kio.green, label: 'Cambios pendientes de enviar', value: '${sync.pending}'),
         KpiCard(icon: LucideIcons.arrowRightLeft, color: Kio.navy, label: 'Revisión local / servidor', value: '${sync.cursor} / ${sync.head}', hint: 'Último ciclo: ↑${sync.lastPushed} ↓${sync.lastPulled}'),
       ]),
+      const SizedBox(height: 16),
+      _UpdateCard(up: up),
       const SizedBox(height: 20),
       LayoutBuilder(builder: (context, c) {
         final info = KioCard(
@@ -71,9 +152,20 @@ class SyncPage extends StatelessWidget {
             const SizedBox(height: 12),
             _kv('Equipo', '${s.deviceName} (${s.platform})'),
             _kv('Terminal / prefijo', s.terminal),
+            _kv('Sede del POS', s.siteId.isEmpty ? 'No configurada' : s.siteId),
             _kv('Id del equipo', s.deviceId),
             _kv('Versión de la app', kAppVersion),
             _kv('Base local', LocalDb.instance.path),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.tonalIcon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeviceSetupPage())),
+                icon: const Icon(Icons.settings, size: 16),
+                label: const Text('Configurar sede / terminal'),
+              ),
+            ),
+            const SizedBox(height: 10),
             _kv('API', s.apiUrl),
             _kv('Sincronización', s.syncUrl),
             if (sync.clockSkew != null && sync.clockSkew!.inMinutes.abs() >= 2)

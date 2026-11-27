@@ -2,7 +2,7 @@ import { Download, Laptop, Monitor, PackageCheck, ShieldCheck } from 'lucide-rea
 import { Badge, Button, Card, IconTile, PageHeader } from '../../components/ui'
 
 const WINDOWS_URL = import.meta.env.VITE_DOWNLOAD_WINDOWS_URL || ''
-const LINUX_URL = import.meta.env.VITE_DOWNLOAD_LINUX_URL || ''
+const LINUX_URL = import.meta.env.VITE_DOWNLOAD_LINUX_URL || '/downloads/kio-sbs-pos-linux.tar.gz'
 
 type Platform = {
   key: string
@@ -37,7 +37,7 @@ const PLATFORMS: Platform[] = [
     detail: 'Misma experiencia POS optimizada para terminales de venta.',
     url: LINUX_URL,
     file: 'kio-sbs-pos-linux.tar.gz',
-    requirements: ['Linux 64-bit (Ubuntu/Debian recomendado)', 'Conexión a internet para sincronización', 'Impresora/ticketera opcional'],
+    requirements: ['Linux 64-bit (Ubuntu/Debian recomendado)', 'Conexión a internet para sincronización', 'Actualizaciones automáticas al reiniciar', 'Impresora/ticketera opcional'],
   },
 ]
 
@@ -77,7 +77,7 @@ function PlatformCard({ p }: { p: Platform }) {
           <a
             href={p.url}
             download
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white transition hover:bg-brand-700 active:scale-[.98]"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-brand-500 to-brand-700 px-4 text-sm font-semibold text-white shadow-[0_8px_20px_-8px_rgb(67_56_202/0.7)] transition hover:brightness-110 active:scale-[.98]"
           >
             <Download size={16} strokeWidth={2} />
             Descargar para {p.name}

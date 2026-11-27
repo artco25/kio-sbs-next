@@ -52,18 +52,29 @@ class GraphQLClient {
       if (_injected == null) client.close();
     }
 
-    Map<String, dynamic> body;
+    dynamic decoded;
     try {
-      body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      decoded = jsonDecode(utf8.decode(res.bodyBytes));
     } catch (_) {
       throw GqlException('Respuesta inválida del servidor (HTTP ${res.statusCode})', offline: res.statusCode >= 500);
     }
+    if (decoded is! Map<String, dynamic>) {
+      throw GqlException('Respuesta inválida del servidor (HTTP ${res.statusCode})', offline: res.statusCode >= 500);
+    }
+    final body = decoded;
     final errors = body['errors'] as List?;
     if (errors != null && errors.isNotEmpty) {
-      final e = errors.first as Map<String, dynamic>;
-      final code = (e['extensions'] as Map?)?['code'] as String?;
-      throw GqlException(e['message'] as String? ?? 'Error', code: code);
+      final first = errors.first;
+      final e = first is Map ? first : <String, dynamic>{'message': '$first'};
+      final ext = e['extensions'];
+      final code = ext is Map ? ext['code'] as String? : null;
+      throw GqlException('${e['message'] ?? 'Error'}', code: code);
     }
-    return (body['data'] as Map<String, dynamic>?) ?? {};
+    final data = body['data'];
+    if (data is! Map) {
+      final detail = body['message'] ?? body['error'] ?? '';
+      throw GqlException('El servidor respondió sin datos (HTTP ${res.statusCode}) $detail'.trim(), offline: res.statusCode >= 500);
+    }
+    return Map<String, dynamic>.from(data);
   }
 }

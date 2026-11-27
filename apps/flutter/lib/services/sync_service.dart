@@ -253,19 +253,32 @@ class SyncService extends ChangeNotifier {
     var received = 0;
     for (var page = 0; page < 200; page++) {
       final pendingNow = await db.pendingCount();
-      final data = await session.sync.run(_pullQuery, {
-        'since': cursor,
-        'limit': 500,
-        'device': {
-          'id': session.deviceId,
-          'name': session.deviceName,
-          'platform': session.platform,
-          'appVersion': kAppVersion,
-          'pending': pendingNow,
-          'cursor': cursor,
-        },
-      });
-      final res = data['pull'] as Map<String, dynamic>;
+      final device = <String, dynamic>{
+        'id': session.deviceId,
+        'name': session.deviceName,
+        'platform': session.platform,
+        'appVersion': kAppVersion,
+        'pending': pendingNow,
+        'cursor': cursor,
+      };
+      final extra = <String, dynamic>{
+        'terminalCode': session.terminalCode,
+        'section': session.section,
+        'macAddress': session.macAddress,
+        'hardwareId': session.hardwareId,
+      };
+      Map<String, dynamic> data;
+      try {
+        data = await session.sync.run(_pullQuery, {'since': cursor, 'limit': 500, 'device': {...device, ...extra}});
+      } on GqlException catch (e) {
+        // Servidor desplegado antes de los campos nuevos del equipo: reintenta con los básicos.
+        final m = e.message.toLowerCase();
+        if (e.offline || e.unauthenticated || !(m.contains('deviceinput') || m.contains('unknown') || m.contains('not defined'))) rethrow;
+        data = await session.sync.run(_pullQuery, {'since': cursor, 'limit': 500, 'device': device});
+      }
+      final pulled = data['pull'];
+      if (pulled is! Map) throw GqlException('El servidor no devolvió cambios (pull vacío)');
+      final res = Map<String, dynamic>.from(pulled);
       head = (res['head'] as num).toInt();
       _measureSkew(res['serverTime'] as String?);
       if (res['reset'] == true) {

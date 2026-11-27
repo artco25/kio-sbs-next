@@ -4,9 +4,11 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
 import 'data/local_db.dart';
+import 'pages/device_setup_page.dart';
 import 'pages/login_page.dart';
 import 'services/session.dart';
 import 'services/sync_service.dart';
+import 'services/updater.dart';
 import 'theme/kio_theme.dart';
 import 'ui/shell.dart';
 
@@ -18,15 +20,18 @@ Future<void> main() async {
   final session = Session(db);
   await session.load();
   final sync = SyncService(db, session);
+  final updater = UpdateService(session);
 
   runApp(MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: db),
       ChangeNotifierProvider.value(value: session),
       ChangeNotifierProvider.value(value: sync),
+      ChangeNotifierProvider.value(value: updater),
     ],
     child: const KioSbsApp(),
   ));
+  updater.start();
 }
 
 class KioSbsApp extends StatelessWidget {
@@ -83,17 +88,22 @@ class _RootState extends State<_Root> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final session = context.watch<Session>();
     final sync = context.read<SyncService>();
-    if (session.loggedIn && !_started) {
+    final ready = session.loggedIn && session.deviceConfigured;
+    if (ready && !_started) {
       _started = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         sync.start();
         session.refreshMe();
       });
-    } else if (!session.loggedIn && _started) {
+    } else if (!ready && _started) {
       _started = false;
       sync.stop();
     }
-    final child = session.loggedIn ? const KioShell() : const LoginPage();
+    final child = !session.loggedIn
+        ? const LoginPage()
+        : !session.deviceConfigured
+            ? const DeviceSetupPage()
+            : const KioShell();
     // Cualquier interacción del usuario cuenta como actividad: retoma el sync si estaba en pausa.
     return Listener(
       behavior: HitTestBehavior.translucent,

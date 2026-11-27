@@ -2,7 +2,7 @@ import { CloudOff, Laptop, MonitorSmartphone, Monitor, Pencil, RefreshCw, Smartp
 import { useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '../../components/charts'
 import { Badge, Button, Card, type Column, DataTable, EmptyState, ErrorBox, Field, IconButton, IconTile, Modal, NameCell, PageHeader, Select, type Tone, useFeedback } from '../../components/ui'
-import { qty, relative } from '../../lib/format'
+import { money, qty, relative } from '../../lib/format'
 import { gql } from '../../lib/gql'
 import { useGql } from '../../lib/useGql'
 
@@ -15,12 +15,30 @@ interface DeviceItem {
   lastCursor: number
   pending: number
   siteId: string | null
+  terminalCode: string | null
+  section: string | null
+  macAddress: string | null
+  hardwareId: string | null
   user: { name: string } | null
 }
 
 interface SiteLite { id: string; name: string }
+interface PosSessionLite {
+  id: string
+  terminal: string | null
+  status: string
+  openedAt: string
+  closedAt: string | null
+  openingAmount: number
+  closingAmount: number | null
+  salesTotal: number
+  salesCount: number
+  openedBy: { name: string } | null
+  closedBy: { name: string } | null
+}
 
-const Q = `{ devices{ id name platform appVersion lastSyncAt lastCursor pending siteId user{ name } } sites{ id name } }`
+const Q = `{ devices{ id name platform appVersion lastSyncAt lastCursor pending siteId terminalCode section macAddress hardwareId user{ name } } sites{ id name } }`
+const HISTORY_Q = `query($terminal:String){ posSessions(terminal:$terminal, limit:50){ id terminal status openedAt closedAt openingAmount closingAmount salesTotal salesCount openedBy{ name } closedBy{ name } } }`
 
 const PLATFORM: Record<string, { label: string; icon: LucideIcon; tone: Tone }> = {
   windows: { label: 'Windows', icon: Monitor, tone: 'brand' },
@@ -44,6 +62,9 @@ export default function Devices() {
   const [editing, setEditing] = useState<DeviceItem | null>(null)
   const [siteId, setSiteId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [historyDevice, setHistoryDevice] = useState<DeviceItem | null>(null)
+  const [history, setHistory] = useState<PosSessionLite[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
   // El estado en línea depende de la hora: refresca cada 30 s.
   useEffect(() => {
     const t = setInterval(() => void reload(), 30_000)
@@ -76,6 +97,19 @@ export default function Devices() {
     } catch (e) { toast((e as Error).message, 'error') } finally { setSaving(false) }
   }
 
+  async function openHistory(d: DeviceItem) {
+    setHistoryDevice(d)
+    setHistory([])
+    const terminal = d.terminalCode?.trim()
+    if (!terminal) return
+    setHistoryLoading(true)
+    try {
+      const res = await gql<{ posSessions: PosSessionLite[] }>(HISTORY_Q, { terminal })
+      setHistory(res.posSessions ?? [])
+    } catch (e) { toast((e as Error).message, 'error') }
+    finally { setHistoryLoading(false) }
+  }
+
   const columns: Column<DeviceItem>[] = [
     {
       key: 'device',
@@ -93,6 +127,16 @@ export default function Devices() {
         )
       },
     },
+    {
+      key: 'terminal',
+      header: 'Caja / terminal',
+      render: (d) => (
+        <button type="button" className="text-left" onClick={() => openHistory(d)}>
+          <div className="font-semibold text-brand-700 hover:underline">{d.terminalCode || 'Sin código'}</div>
+          <div className="text-xs text-muted">{d.section ? `Sección ${d.section}` : 'Sin sección'}{d.macAddress ? ` · MAC ${d.macAddress}` : ''}</div>
+        </button>
+      ),
+    },
     { key: 'user', header: 'Usuario', hideSm: true, render: (d) => (d.user ? <NameCell name={d.user.name} /> : <span className="text-muted">—</span>) },
     { key: 'site', header: 'Sede', hideSm: true, render: (d) => <span>{siteName(d.siteId)}</span> },
     { key: 'version', header: 'Versión', hideSm: true, render: (d) => (d.appVersion ? <Badge tone="neutral">v{d.appVersion}</Badge> : '—') },
@@ -100,13 +144,12 @@ export default function Devices() {
       key: 'sync',
       header: 'Último sync',
       render: (d) => (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="whitespace-nowrap">{d.lastSyncAt ? relative(new Date(ts(d.lastSyncAt) ?? 0).toISOString()) : 'Nunca'}</span>
-          {online(d) && (
-            <Badge tone="success" dot>
-              En línea
-            </Badge>
-          )}
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="whitespace-nowrap font-medium text-ink">{d.lastSyncAt ? relative(new Date(ts(d.lastSyncAt) ?? 0).toISOString()) : 'Nunca'}</span>
+            {online(d) ? <Badge tone="success" dot>En línea</Badge> : d.lastSyncAt ? <Badge tone="neutral">Sin señal reciente</Badge> : null}
+          </div>
+          <div className="text-xs text-muted">{d.lastSyncAt ? new Date(ts(d.lastSyncAt) ?? 0).toLocaleString() : 'Sin sincronización'} · cursor {qty(d.lastCursor)}</div>
         </div>
       ),
     },
@@ -170,6 +213,41 @@ export default function Devices() {
             <Button variant="ghost" onClick={() => setEditing(null)}>Cancelar</Button>
             <Button loading={saving} onClick={saveSite}>Guardar</Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!historyDevice} onClose={() => setHistoryDevice(null)} title={`Historial de caja ${historyDevice?.terminalCode || ''}`} subtitle={historyDevice?.name || 'Dispositivo POS'}>
+        <div className="space-y-4">
+          <div className="grid gap-3 rounded-2xl bg-canvas/60 p-4 text-sm sm:grid-cols-2">
+            <div><span className="text-muted">Terminal/código:</span> <span className="font-semibold text-ink">{historyDevice?.terminalCode || '—'}</span></div>
+            <div><span className="text-muted">Sección:</span> <span className="font-semibold text-ink">{historyDevice?.section || '—'}</span></div>
+            <div><span className="text-muted">MAC:</span> <span className="font-semibold text-ink">{historyDevice?.macAddress || '—'}</span></div>
+            <div><span className="text-muted">Hardware ID:</span> <span className="font-semibold text-ink break-all">{historyDevice?.hardwareId || '—'}</span></div>
+          </div>
+          {!historyDevice?.terminalCode ? (
+            <p className="text-sm text-muted">Este equipo aún no tiene código de caja/terminal configurado. Se asignará cuando la app POS envíe su configuración.</p>
+          ) : historyLoading ? (
+            <p className="text-sm text-muted">Cargando historial...</p>
+          ) : history.length === 0 ? (
+            <p className="text-sm text-muted">No hay sesiones de caja registradas para este terminal.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-line text-left text-muted"><th className="py-2 pr-3">Apertura</th><th className="py-2 pr-3">Estado</th><th className="py-2 pr-3">Abrió</th><th className="py-2 pr-3 text-right">Ventas</th><th className="py-2 text-right">Total</th></tr></thead>
+                <tbody>
+                  {history.map((s) => (
+                    <tr key={s.id} className="border-b border-line/60">
+                      <td className="py-2 pr-3 whitespace-nowrap">{new Date(/z|[+-]\d\d:?\d\d$/i.test(s.openedAt) ? s.openedAt : `${s.openedAt.replace(' ','T')}Z`).toLocaleString()}</td>
+                      <td className="py-2 pr-3"><Badge tone={s.status === 'abierta' ? 'warning' : 'success'}>{s.status}</Badge></td>
+                      <td className="py-2 pr-3">{s.openedBy?.name || '—'}</td>
+                      <td className="py-2 pr-3 text-right">{qty(s.salesCount)}</td>
+                      <td className="py-2 text-right font-medium">{money(s.salesTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </Modal>
     </>

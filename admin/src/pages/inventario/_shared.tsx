@@ -35,13 +35,8 @@ export interface Prod {
   cum: string | null
   color: string | null
   flavor: string | null
-  line1: string | null
-  line2: string | null
-  line3: string | null
-  line4: string | null
-  line5: string | null
-  line6: string | null
   category: CatRef | null
+  tags: { id: string; name: string | null; color: string | null }[]
 }
 
 export interface Move {
@@ -56,7 +51,7 @@ export interface Move {
   product: { id: string; name: string | null; sku: string | null; unit: string | null } | null
 }
 
-export const PRODUCT_FIELDS = 'id name sku barcode unit price cost taxRate trackStock minStock availablePos active stock description shortDescription brand weight volume cum color flavor line1 line2 line3 line4 line5 line6 category{ id name color }'
+export const PRODUCT_FIELDS = 'id name sku barcode unit price cost taxRate trackStock minStock availablePos active stock description shortDescription brand weight volume cum color flavor category{ id name color } tags{ id name color }'
 export const MOVE_FIELDS = 'id productId qty kind date unitCost notes createdAt product{ id name sku unit }'
 
 // ============================================================================ presentación

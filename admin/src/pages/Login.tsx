@@ -1,4 +1,4 @@
-import { ArrowRight, Building2, CircleAlert, Eye, EyeOff, IdCard, Landmark, Lock, Mail, ShoppingBag, Store, TrendingUp, UserRound } from 'lucide-react'
+import { ArrowRight, Building2, CircleAlert, Eye, EyeOff, IdCard, Landmark, Lock, Mail, MapPin, ShoppingBag, Store, TrendingUp, UserRound, Warehouse } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '../components/ui'
 import { ME_FIELDS, useAuth, type Me } from '../lib/auth'
@@ -19,6 +19,10 @@ export default function Login() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [businessType, setBusinessType] = useState('retail')
+  const [city, setCity] = useState('')
+  const [hasCedi, setHasCedi] = useState(false)
+  const [storeCount, setStoreCount] = useState('1')
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -37,7 +41,7 @@ export default function Login() {
       if (mode === 'signup') {
         const d = await gql<{ signup: { token: string; me: Me } }>(
           `mutation($i:SignupInput!){ signup(input:$i){ token me { ${ME_FIELDS} } } }`,
-          { i: { companyName: company.trim(), name: name.trim(), email: email.trim(), password } },
+          { i: { companyName: company.trim(), name: name.trim(), email: email.trim(), password, businessType, city: city.trim() || null, hasCedi, storeCount: Math.max(1, Number(storeCount || 1)) } },
         )
         setSession(d.signup.token, d.signup.me)
       } else await login(email.trim(), password)
@@ -79,6 +83,42 @@ export default function Login() {
                     <input className="input h-12 pl-11" required autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Laura Martínez" />
                   </div>
                 </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-[13px] font-semibold text-ink-soft">Tipo de negocio</span>
+                  <div className="relative">
+                    <Store size={17} strokeWidth={1.75} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-subtle" />
+                    <select className="input h-12 pl-11" value={businessType} onChange={(e) => setBusinessType(e.target.value)}>
+                      <option value="retail">Comercio / Retail</option>
+                      <option value="restaurant">Restaurante / Comida</option>
+                      <option value="service">Servicios</option>
+                      <option value="beauty">Belleza / Cuidado personal</option>
+                      <option value="full">Mixto / Otro</option>
+                    </select>
+                  </div>
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-[13px] font-semibold text-ink-soft">Ciudad / ubicación</span>
+                  <div className="relative">
+                    <MapPin size={17} strokeWidth={1.75} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-subtle" />
+                    <input className="input h-12 pl-11" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Bogotá, Colombia" />
+                  </div>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-1.5 block text-[13px] font-semibold text-ink-soft">N° de tiendas</span>
+                    <div className="relative">
+                      <Store size={17} strokeWidth={1.75} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-subtle" />
+                      <input className="input h-12 pl-11" type="number" min={1} max={50} value={storeCount} onChange={(e) => setStoreCount(e.target.value)} />
+                    </div>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-[13px] font-semibold text-ink-soft">¿Tienes CEDI?</span>
+                    <button type="button" onClick={() => setHasCedi((v) => !v)} className={`input flex h-12 w-full items-center gap-2 px-3 text-left ${hasCedi ? 'border-brand-300 bg-brand-50 text-brand-800' : ''}`}>
+                      <Warehouse size={17} strokeWidth={1.75} className={hasCedi ? 'text-brand-600' : 'text-subtle'} />
+                      <span className="text-sm font-medium">{hasCedi ? 'Sí, tengo CEDI' : 'No, solo tienda(s)'}</span>
+                    </button>
+                  </label>
+                </div>
               </>
             )}
             <label className="block">
