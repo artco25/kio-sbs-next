@@ -241,6 +241,13 @@ export default function Products() {
     )
 
   const downloadTemplate = () => {
+    const headers = [
+      'nombre', 'sku', 'codigo_barras', 'categoria', 'unidad', 'precio_sin_iva', 'costo', 'iva', 'stock_minimo',
+      'controla_inventario', 'disponible_pos', 'activo',
+      'descripcion_corta', 'descripcion', 'marca', 'peso', 'volumen', 'cum', 'color', 'sabor',
+      'linea1', 'linea2', 'linea3', 'linea4', 'linea5', 'linea6',
+      'bodega_codigo', 'existencia_bodega',
+    ]
     const ws = XLSX.utils.json_to_sheet([
       {
         nombre: 'Aceite de girasol 1 L',
@@ -255,11 +262,39 @@ export default function Products() {
         controla_inventario: 'SI',
         disponible_pos: 'SI',
         activo: 'SI',
+        descripcion_corta: 'Aceite vegetal para cocina',
+        descripcion: 'Aceite de girasol refinado, botella 1 litro.',
+        marca: 'Kio',
+        peso: 1,
+        volumen: 1,
+        cum: '',
+        color: 'Amarillo',
+        sabor: 'Neutro',
+        linea1: 'Aceites',
+        linea2: '',
+        linea3: '',
+        linea4: '',
+        linea5: '',
+        linea6: '',
+        bodega_codigo: (data?.warehouses ?? []).find((w) => w.isDefault)?.id?.slice(0, 8) ?? '',
+        existencia_bodega: 10,
       },
-    ], { header: ['nombre', 'sku', 'codigo_barras', 'categoria', 'unidad', 'precio_sin_iva', 'costo', 'iva', 'stock_minimo', 'controla_inventario', 'disponible_pos', 'activo'] })
-    ws['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 10 }]
+    ], { header: headers })
+    ws['!cols'] = headers.map((h) => ({ wch: Math.max(12, h.length + 2) }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Productos')
+
+    const whs = (data?.warehouses ?? []).map((w) => ({
+      codigo_bodega: w.id,
+      codigo_corto: w.id.slice(0, 8),
+      nombre: w.name ?? '',
+      sede: w.siteId ?? '',
+      activa: w.active ? 'SI' : 'NO',
+      predeterminada: w.isDefault ? 'SI' : 'NO',
+    }))
+    const wsWh = XLSX.utils.json_to_sheet(whs.length ? whs : [{ codigo_bodega: '', codigo_corto: '', nombre: 'No hay bodegas creadas', sede: '', activa: '', predeterminada: '' }], { header: ['codigo_bodega', 'codigo_corto', 'nombre', 'sede', 'activa', 'predeterminada'] })
+    wsWh['!cols'] = [{ wch: 38 }, { wch: 14 }, { wch: 24 }, { wch: 38 }, { wch: 10 }, { wch: 14 }]
+    XLSX.utils.book_append_sheet(wb, wsWh, 'Bodegas')
     XLSX.writeFile(wb, 'plantilla-productos-kio.xlsx')
   }
 
@@ -283,15 +318,23 @@ export default function Products() {
         const n = Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.'))
         return Number.isFinite(n) ? n : 0
       }
-      const changes = raw.map((r) => {
+      const whs = data?.warehouses ?? []
+      const findWh = (code: string) => {
+        const c = code.trim().toLowerCase()
+        if (!c) return null
+        return whs.find((w) => w.id.toLowerCase() === c || w.id.slice(0, 8).toLowerCase() === c || (w.name ?? '').trim().toLowerCase() === c) ?? null
+      }
+      const changes: { table: string; row: Row }[] = []
+      for (const r of raw) {
         const name = String(r.nombre ?? r.name ?? '').trim()
-        if (!name) return null
+        if (!name) continue
         const catName = String(r.categoria ?? r.category ?? '').trim().toLowerCase()
         const sku = String(r.sku ?? '').trim() || null
         const barcode = String(r.codigo_barras ?? r.barcode ?? '').trim() || null
         const existingId = String(r.id ?? '').trim() || (sku ? bySku.get(sku.toLowerCase()) : undefined) || (barcode ? byBarcode.get(barcode) : undefined)
+        const id = existingId || uuid()
         const row: Row = {
-          id: existingId || uuid(),
+          id,
           name,
           sku,
           barcode,
@@ -304,12 +347,33 @@ export default function Products() {
           track_stock: bool(r.controla_inventario ?? r.track_stock ?? 1),
           available_pos: bool(r.disponible_pos ?? r.available_pos ?? 1),
           active: bool(r.activo ?? r.active ?? 1),
+          description: String(r.descripcion ?? r.description ?? '').trim() || null,
+          short_description: String(r.descripcion_corta ?? r.short_description ?? '').trim() || null,
+          brand: String(r.marca ?? r.brand ?? '').trim() || null,
+          weight: num(r.peso ?? r.weight),
+          volume: num(r.volumen ?? r.volume),
+          cum: String(r.cum ?? '').trim() || null,
+          color: String(r.color ?? '').trim() || null,
+          flavor: String(r.sabor ?? r.flavor ?? '').trim() || null,
+          line1: String(r.linea1 ?? r.line1 ?? '').trim() || null,
+          line2: String(r.linea2 ?? r.line2 ?? '').trim() || null,
+          line3: String(r.linea3 ?? r.line3 ?? '').trim() || null,
+          line4: String(r.linea4 ?? r.line4 ?? '').trim() || null,
+          line5: String(r.linea5 ?? r.line5 ?? '').trim() || null,
+          line6: String(r.linea6 ?? r.line6 ?? '').trim() || null,
         }
-        return { table: 'products', row }
-      }).filter(Boolean) as { table: string; row: Row }[]
+        changes.push({ table: 'products', row })
+        const whCode = String(r.bodega_codigo ?? r.warehouse_code ?? r.bodega ?? '').trim()
+        const whQty = num(r.existencia_bodega ?? r.stock_bodega ?? r.existencia ?? r.stock ?? 0)
+        const wh = findWh(whCode)
+        if (wh && whQty !== 0 && !existingId) {
+          changes.push({ table: 'stock_moves', row: { id: uuid(), product_id: id, warehouse_id: wh.id, qty: whQty, kind: 'ajuste', date: today(), unit_cost: num(r.costo ?? r.cost), notes: 'Importación masiva' } })
+        }
+      }
       if (!changes.length) throw new Error('No se encontraron productos válidos (columna "nombre").')
       await saveRecords(changes)
-      setImportMsg({ ok: true, text: `Se importaron ${changes.length} producto(s) correctamente.` })
+      const prodCount = changes.filter((c) => c.table === 'products').length
+      setImportMsg({ ok: true, text: `Se importaron ${prodCount} producto(s) correctamente.` })
       window.dispatchEvent(new Event('kio:invalidate'))
     } catch (e: any) {
       setImportMsg({ ok: false, text: e?.message || 'Error importando archivo.' })
