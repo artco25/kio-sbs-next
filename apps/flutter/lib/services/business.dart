@@ -251,8 +251,9 @@ class Biz {
           'kind': 'venta',
           'ref_id': saleId,
           'date': localToday(),
-          'site_id': s.siteId.isEmpty ? null : s.siteId,
-          'warehouse_id': warehousesForSale[l.productId]?['id'],
+          'site_id': s.siteId.isEmpty ? (warehousesForSale[l.productId]?['site_id']) : s.siteId,
+          // OJO: es la bodega (warehouse_id), no el id de la fila de existencias.
+          'warehouse_id': warehousesForSale[l.productId]?['warehouse_id'],
           // El backend audita el movimiento pero no vuelve a descontar: ya se descontó aquí.
           'notes': 'ws_synced=1',
         }));

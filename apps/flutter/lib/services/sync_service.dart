@@ -157,6 +157,7 @@ class SyncService extends ChangeNotifier {
     notifyListeners();
     try {
       await _checkScope();
+      await _repairWarehouseMoves();
       lastPushed = await _push();
       lastPulled = await _pull();
       lastSync = DateTime.now();
@@ -180,6 +181,29 @@ class SyncService extends ChangeNotifier {
       _running = false;
       notifyListeners();
     }
+  }
+
+  /// Versiones <= 1.2.2 guardaban en stock_moves.warehouse_id el id de la fila de existencias en vez de la bodega:
+  /// el servidor lo rechazaba (llave foránea). Se corrige al vuelo y se reenvía.
+  Future<void> _repairWarehouseMoves() async {
+    final bad = await db.db.rawQuery('''
+      SELECT m.id, ws.warehouse_id AS wh, ws.site_id AS site FROM stock_moves m
+        JOIN warehouse_stocks ws ON ws.id = m.warehouse_id
+       WHERE m.warehouse_id NOT IN (SELECT id FROM warehouses)''');
+    if (bad.isEmpty) return;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.db.transaction((tx) async {
+      for (final r in bad) {
+        await tx.update(
+          'stock_moves',
+          {'warehouse_id': r['wh'], 'site_id': r['site'], 'updated_at': now, 'dirty': Dirty.pending},
+          where: 'id = ?',
+          whereArgs: [r['id']],
+        );
+        await tx.delete('meta', where: 'key = ?', whereArgs: ['reject:stock_moves:${r['id']}']);
+      }
+    });
+    db.changed();
   }
 
   // ------------------------------------------------------------------ push
