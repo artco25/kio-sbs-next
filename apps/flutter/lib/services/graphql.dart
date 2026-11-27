@@ -23,7 +23,11 @@ class GraphQLClient {
   final String? deviceId;
   final http.Client? _injected;
 
-  Uri get _uri => Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}/graphql');
+  Uri get _uri {
+    final b = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    // La URL de sync ya puede traer el endpoint completo (…/sync/graphql).
+    return Uri.parse(b.endsWith('/graphql') ? b : '$b/graphql');
+  }
 
   Future<Map<String, dynamic>> run(String query, [Map<String, dynamic>? variables, Duration timeout = const Duration(seconds: 25)]) async {
     final http.Response res;
