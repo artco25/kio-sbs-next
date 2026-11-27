@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../data/local_db.dart';
+import '../data/tables.g.dart';
 import '../pages/catalog.dart';
 import '../services/session.dart';
 import '../services/sync_service.dart';
@@ -451,7 +452,7 @@ class SyncPill extends StatelessWidget {
       message: sync.lastError ?? (sync.lastSync == null ? 'Aún no sincroniza' : 'Última sincronización: ${TimeOfDay.fromDateTime(sync.lastSync!).format(context)}'),
       child: InkWell(
         borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
+        onTap: () => showDialog<void>(context: context, builder: (_) => ChangeNotifierProvider.value(value: sync, child: const _SyncDetailDialog())),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(color: Kio.tint(color, .10), borderRadius: BorderRadius.circular(999)),
@@ -469,6 +470,69 @@ class SyncPill extends StatelessWidget {
           ]),
         ),
       ),
+    );
+  }
+}
+
+/// Detalle del sync: error actual, pendientes y cambios rechazados, con reintento.
+class _SyncDetailDialog extends StatelessWidget {
+  const _SyncDetailDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final sync = context.watch<SyncService>();
+    return AlertDialog(
+      title: const Text('Estado de la sincronización'),
+      content: SizedBox(
+        width: 520,
+        child: FutureBuilder<List<Map<String, Object?>>>(
+          key: ValueKey('${sync.state}-${sync.pending}-${sync.lastSync}'),
+          future: () async {
+            final rows = await LocalDb.instance.rejectedRows();
+            for (final r in rows) {
+              r['_reason'] = await LocalDb.instance.getMeta('reject:${r['_table']}:${r['id']}');
+            }
+            return rows;
+          }(),
+          builder: (context, snap) {
+            final rejected = snap.data ?? const [];
+            return SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Estado: ${sync.state.name} · Versión $kAppVersion · Pendientes: ${sync.pending}', style: Kio.small),
+                const SizedBox(height: 10),
+                if (sync.lastError != null)
+                  SelectableText(sync.lastError!, style: const TextStyle(color: Kio.danger, fontSize: 13))
+                else
+                  const Text('Sin error de conexión.', style: TextStyle(fontSize: 13)),
+                if (rejected.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text('Cambios rechazados por el servidor (${rejected.length})', style: Kio.h2(14)),
+                  const SizedBox(height: 6),
+                  for (final r in rejected)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('${kTables[r['_table']]?.label ?? r['_table']} · ${r['name'] ?? r['number'] ?? r['concept'] ?? r['id']}'),
+                      subtitle: SelectableText('${r['_reason'] ?? 'Sin motivo'}', style: const TextStyle(color: Kio.danger, fontSize: 12)),
+                      trailing: TextButton(
+                        onPressed: () async {
+                          await sync.discardRejected(r['_table'] as String, r['id'] as String);
+                          if (context.mounted) (context as Element).markNeedsBuild();
+                        },
+                        child: const Text('Descartar'),
+                      ),
+                    ),
+                ],
+              ]),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
+        TextButton(onPressed: () => sync.resync(), child: const Text('Resincronizar todo')),
+        FilledButton(onPressed: sync.state == SyncState.syncing ? null : () => sync.syncNow(), child: const Text('Reintentar')),
+      ],
     );
   }
 }
