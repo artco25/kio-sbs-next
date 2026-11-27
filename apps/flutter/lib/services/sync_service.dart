@@ -170,8 +170,10 @@ class SyncService extends ChangeNotifier {
       } else {
         state = e.offline ? SyncState.offline : SyncState.error;
       }
-    } catch (e) {
-      lastError = '$e';
+    } catch (e, st) {
+      // Incluye el origen (archivo:línea) para poder diagnosticar errores inesperados desde la barra.
+      final where = RegExp(r'(\w+\.dart:\d+)').allMatches(st.toString()).map((m) => m.group(1)).whereType<String>().take(2).join(' < ');
+      lastError = where.isEmpty ? '$e' : '$e [$where]';
       state = SyncState.error;
     } finally {
       pending = await db.pendingCount();
@@ -214,11 +216,13 @@ class SyncService extends ChangeNotifier {
       final data = await session.sync.run(_pushMutation, {
         'changes': [for (final (t, r) in chunk) {'table': t, 'row': _wire(t, r)}],
       });
-      final res = data['push'] as Map<String, dynamic>;
-      head = (res['head'] as num).toInt();
+      final pushed = data['push'];
+      if (pushed is! Map) throw GqlException('El servidor no confirmó el envío (push vacío)');
+      final res = Map<String, dynamic>.from(pushed);
+      head = (res['head'] as num?)?.toInt() ?? head;
       _measureSkew(res['serverTime'] as String?);
       final rejected = {
-        for (final x in (res['rejected'] as List).cast<Map<String, dynamic>>()) '${x['table']}:${x['id']}': x['reason'] as String,
+        for (final x in ((res['rejected'] as List?) ?? const []).cast<Map<String, dynamic>>()) '${x['table']}:${x['id']}': x['reason'] as String,
       };
       await db.db.transaction((tx) async {
         for (final (t, r) in chunk) {
@@ -279,7 +283,7 @@ class SyncService extends ChangeNotifier {
       final pulled = data['pull'];
       if (pulled is! Map) throw GqlException('El servidor no devolvió cambios (pull vacío)');
       final res = Map<String, dynamic>.from(pulled);
-      head = (res['head'] as num).toInt();
+      head = (res['head'] as num?)?.toInt() ?? head;
       _measureSkew(res['serverTime'] as String?);
       if (res['reset'] == true) {
         // La BD del servidor se restauró: se vuelve a descargar todo (lo local pendiente se conserva).
@@ -287,14 +291,14 @@ class SyncService extends ChangeNotifier {
         await db.setMeta('sync:cursor', '0');
         continue;
       }
-      final changes = (res['changes'] as List).cast<Map<String, dynamic>>();
-      final next = (res['cursor'] as num).toInt();
+      final changes = ((res['changes'] as List?) ?? const []).cast<Map<String, dynamic>>();
+      final next = (res['cursor'] as num?)?.toInt() ?? cursor;
       await db.db.transaction((tx) async {
         for (final ch in changes) {
           final table = ch['table'] as String;
           final spec = kTables[table];
           if (spec == null) continue;
-          for (final raw in (ch['rows'] as List)) {
+          for (final raw in ((ch['rows'] as List?) ?? const [])) {
             final row = (raw as Map).cast<String, Object?>();
             received++;
             final local = await tx.query(table, columns: ['dirty', 'updated_at'], where: 'id = ?', whereArgs: [row['id']]);

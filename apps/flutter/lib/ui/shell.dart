@@ -277,6 +277,17 @@ class _NavItem extends StatelessWidget {
 
 // ------------------------------------------------------------------ notificaciones
 
+String _statusText(UpdateService up) {
+  if (up.blockedByCash) return 'Descargada. Se instalará sola al cerrar la caja.';
+  return switch (up.state) {
+    UpdateState.downloading => 'Descargando actualización…',
+    UpdateState.checking || UpdateState.available => 'Preparando la descarga…',
+    UpdateState.ready => 'Lista: se instalará automáticamente en unos segundos.',
+    UpdateState.error => 'Error: ${up.error ?? 'no se pudo descargar'}. Toca para reintentar.',
+    _ => 'Al día.',
+  };
+}
+
 class _NotificationsButton extends StatelessWidget {
   const _NotificationsButton({required this.onOpenSync});
   final VoidCallback onOpenSync;
@@ -303,7 +314,11 @@ class _NotificationsButton extends StatelessWidget {
                           child: ListTile(
                             leading: const CircleAvatar(child: Icon(LucideIcons.package, size: 18)),
                             title: Text(n.title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                            subtitle: Text(n.body ?? ''),
+                            subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(n.body ?? ''),
+                              const SizedBox(height: 6),
+                              Text(_statusText(up), style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: up.state == UpdateState.error ? Kio.danger : Kio.navy)),
+                            ]),
                             onTap: () async {
                               final nav = Navigator.of(ctx);
                               nav.pop();
@@ -311,8 +326,11 @@ class _NotificationsButton extends StatelessWidget {
                                 if (await confirm(context, 'Instalar actualización', 'Se instalará ${n.title} y el POS se reiniciará.')) {
                                   await up.installAndRestart();
                                 }
-                              } else {
-                                onOpenSync();
+                              } else if (up.state == UpdateState.error) {
+                                unawaited(up.check());
+                                if (context.mounted) toast(context, up.error ?? 'No se pudo descargar la actualización. Reintentando…', error: true);
+                              } else if (context.mounted) {
+                                toast(context, _statusText(up));
                               }
                             },
                           ),

@@ -7,7 +7,7 @@ import '../data/local_db.dart';
 import '../data/tables.g.dart';
 import 'graphql.dart';
 
-const kAppVersion = '1.1.8';
+const kAppVersion = '1.2.0';
 
 /// URLs por defecto: se pueden fijar al compilar
 ///   flutter build windows --dart-define=KIO_API_URL=https://kio-sbs-api.`cuenta`.workers.dev \

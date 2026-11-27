@@ -37,9 +37,9 @@ class UpdateService extends ChangeNotifier {
   final Session session;
 
   Timer? _timer;
+  Timer? _installTimer;
   bool _checking = false;
   bool _downloading = false;
-  bool _autoInstallOnReady = false;
   UpdateRelease? _release;
   String? _script;
 
@@ -83,11 +83,14 @@ class UpdateService extends ChangeNotifier {
     if (deferred != null && deferred.isNotEmpty && _compare(deferred, kAppVersion) <= 0) {
       // La versión diferida ya está instalada.
       await session.db.setMeta('update:deferred', null);
-    } else {
-      _autoInstallOnReady = deferred != null && deferred.isNotEmpty;
     }
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(hours: 1), (_) => unawaited(check()));
+    // Mientras haya una actualización lista, cada minuto intenta instalarla (se aplica sola al cerrar la caja).
+    _installTimer?.cancel();
+    _installTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (state == UpdateState.ready) unawaited(_maybeAutoInstall());
+    });
     unawaited(check());
   }
 
@@ -115,6 +118,7 @@ class UpdateService extends ChangeNotifier {
   @override
   void dispose() {
     _timer?.cancel();
+    _installTimer?.cancel();
     super.dispose();
   }
 
@@ -145,6 +149,8 @@ class UpdateService extends ChangeNotifier {
       // Si el equipo tiene guardada una URL de administración vieja o local,
       // se prueba también el endpoint de producción antes de dar por fallado.
       final bases = <String>{
+        // Primero el backend Express (mismo origen que la sync), luego el admin.
+        session.syncUrl.replaceAll(RegExp(r'/(sync/)?graphql/?$|/sync/?$'), '').replaceAll(RegExp(r'/+$'), ''),
         session.adminUrl.replaceAll(RegExp(r'/+$'), ''),
         'https://kio-sbs.rmolina1529.workers.dev',
       };
@@ -238,19 +244,31 @@ class UpdateService extends ChangeNotifier {
       stagedPath = stage.path;
       _script = await _writeApplyScript(dir, stage);
       _set(UpdateState.ready);
-      if (_autoInstallOnReady) {
-        _autoInstallOnReady = false;
-        await refreshCashState();
-        if (!cashOpen) {
-          await session.db.setMeta('update:deferred', null);
-          await Future.delayed(const Duration(seconds: 2));
-          await installAndRestart();
-        }
-      }
+      _downloading = false;
+      unawaited(_maybeAutoInstall());
     } catch (e) {
       _set(UpdateState.error, message: 'No se pudo descargar la actualización: $e');
     } finally {
       _downloading = false;
+    }
+  }
+
+  bool _autoInstalling = false;
+
+  /// Instala sola cuando no hay caja abierta: sin intervención del usuario ni de soporte.
+  Future<void> _maybeAutoInstall() async {
+    if (_autoInstalling || state != UpdateState.ready || _script == null) return;
+    _autoInstalling = true;
+    try {
+      await refreshCashState();
+      if (cashOpen) return;
+      await Future.delayed(const Duration(seconds: 3));
+      await refreshCashState();
+      if (cashOpen || state != UpdateState.ready) return;
+      await session.db.setMeta('update:deferred', null);
+      await installAndRestart();
+    } finally {
+      _autoInstalling = false;
     }
   }
 
@@ -274,7 +292,7 @@ class UpdateService extends ChangeNotifier {
         r'sleep 1',
         r'if [ -d "$OLD.old" ]; then rm -rf "$OLD.old"; fi',
         r'mv "$OLD" "$OLD.old"',
-        r'if ! mv "$STAGE" "$OLD"; then mv "$OLD.old" "$OLD"; exit 1; fi',
+        r'if ! mv "$STAGE" "$OLD"; then mv "$OLD.old" "$OLD"; cd "$OLD"; nohup ./kio_sbs >/dev/null 2>&1 & exit 1; fi',
         r'chmod +x "$OLD/kio_sbs"',
         r'cd "$OLD"',
         r'nohup ./kio_sbs >/dev/null 2>&1 &',
